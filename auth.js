@@ -1,3 +1,9 @@
+import { setCookieWithExpireHour, getCookie } from "./cookie.js";
+import { postJSON } from "./api.js";
+import { redirect } from "./url.js";
+import { addCSSInHead, addJSInHead } from "./element.js";
+import Swal from 'https://cdn.jsdelivr.net/npm/sweetalert2@11/src/sweetalert2.js';
+
 import { refreshbutton, loginbutton } from "./template.js";
 import qrcode from 'https://cdn.skypack.dev/qrcode-generator-es6';
 
@@ -162,4 +168,66 @@ export function getParamsfromURL() {
     return new Proxy(new URLSearchParams(window.location.search), {
         get: (searchParams, prop) => searchParams.get(prop),
     });
+}
+
+// Google Sign In
+// Buat fungsi untuk memanggil gsi js dan menambahkan elemen div ke dalam DOM
+export async function appendGoogleSignin(client_id, target_url) {
+    try {
+        // Memuat css sweet alert
+        await addCSSInHead("https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.css");
+        // Memuat script Google Sign-In
+        await addJSInHead("https://accounts.google.com/gsi/client");
+        // Menginisialisasi Google Sign-In dan menetapkan gSignIn sebagai callback
+        google.accounts.id.initialize({
+            client_id: client_id,
+            callback: (response) => gSignIn(response, target_url), // Menggunakan gSignIn sebagai callback untuk Google Sign-In
+        });
+        // Render tombol Google Sign-In dalam elemen dengan id "tombolgsigngoogle"
+        google.accounts.id.renderButton(
+            document.getElementById("logs"),
+            {
+                theme: "outline", // Bisa "filled_blue", "filled_black", "outline"
+                size: "large", // Bisa "small", "medium", "large"
+                text: "signin_with", // Bisa "signin_with" atau "continue_with"
+                shape: "pill", // Bisa "rectangular", "pill", "circle", "square"
+            }
+        );
+        // Memunculkan pop-up Google Sign-In
+        google.accounts.id.prompt();
+        console.log('Google Sign-In open successfully!');
+    } catch (error) {
+        console.error('Failed to load Google Sign-In script:', error);
+    }
+}
+
+async function gSignIn(response, target_url) {
+    try {
+        const gtoken = { token: response.credential };
+        await postJSON(target_url, "login", getCookie("login"), gtoken, responsePostFunction);
+    } catch (error) {
+        console.error("Network or JSON parsing error:", error);
+        Swal.fire({
+            icon: "error",
+            title: "Network Error",
+            text: "An error occurred while trying to log in. Please try again.",
+        });
+    }
+}
+
+function responsePostFunction(response) {
+    if (response.status === 200 && response.data) {
+        console.log(response.data);
+        setCookieWithExpireHour('login', response.data.token, 18);
+        redirect("/dashboard");
+    } else {
+        console.error("Login failed:", response.data?.message || "Unknown error");
+        Swal.fire({
+            icon: "error",
+            title: "Login Failed",
+            text: response.data?.message || "Anda belum terdaftar dengan login google, silahkan tap atau scan qr dahulu untuk pendaftaran.",
+        }).then(() => {
+            redirect("/login");
+        });
+    }
 }
