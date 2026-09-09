@@ -25,6 +25,8 @@ export function connectws(id, url_ws, onMessage) {
         console.log("incoming message");
         if (typeof onMessage === "function") {
             onMessage(evt.data);
+        } else if (typeof window.catcher === "function") {
+            window.catcher(evt.data);
         }
       };
 
