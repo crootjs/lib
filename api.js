@@ -1,4 +1,4 @@
-export function getJSON(target_url, responseFunction, tokenkey = null, tokenvalue = null) {
+function requestJSON(method, target_url, responseFunction, datajson, tokenkey, tokenvalue) {
     let myHeaders = new Headers();
 
     // Jika token disediakan, tambahkan header token
@@ -10,10 +10,13 @@ export function getJSON(target_url, responseFunction, tokenkey = null, tokenvalu
     myHeaders.append("Accept", "application/json");
 
     let requestOptions = {
-        method: 'GET',
+        method,
         redirect: 'follow',
         headers: myHeaders
     };
+    if (datajson !== undefined) {
+        requestOptions.body = JSON.stringify(datajson);
+    }
 
     fetch(target_url, requestOptions)
         .then(response => {
@@ -24,104 +27,22 @@ export function getJSON(target_url, responseFunction, tokenkey = null, tokenvalu
             });
         })
         .catch(error => console.log('error', error));
+}
+
+export function getJSON(target_url, responseFunction, tokenkey = null, tokenvalue = null) {
+    requestJSON('GET', target_url, responseFunction, undefined, tokenkey, tokenvalue);
 }
 
 export function postJSON(target_url, datajson, responseFunction, tokenkey = null, tokenvalue = null) {
-    var myHeaders = new Headers();
-
-    // Jika token disediakan, tambahkan header token
-    if (tokenkey && tokenvalue) {
-        myHeaders.append(tokenkey, tokenvalue);
-    }
-
-    myHeaders.append("Content-Type", "application/json");
-    myHeaders.append("Accept", "application/json");
-
-    var raw = JSON.stringify(datajson);
-
-    var requestOptions = {
-        method: 'POST',
-        headers: myHeaders,
-        body: raw,
-        redirect: 'follow'
-    };
-
-    fetch(target_url, requestOptions)
-        .then(response => {
-            const status = response.status;
-            return response.text().then(result => {
-                const parsedResult = JSON.parse(result);
-                responseFunction({ status, data: parsedResult });
-            });
-        })
-        .catch(error => console.log('error', error));
+    requestJSON('POST', target_url, responseFunction, datajson, tokenkey, tokenvalue);
 }
 
 export function deleteJSON(target_url, datajson, responseFunction, tokenkey = null, tokenvalue = null) {
-    var myHeaders = new Headers();
-
-    // Jika token disediakan, tambahkan header token
-    if (tokenkey && tokenvalue) {
-        myHeaders.append(tokenkey, tokenvalue);
-    }
-
-    myHeaders.append("Content-Type", "application/json");
-    myHeaders.append("Accept", "application/json");
-
-    var raw = JSON.stringify(datajson);
-
-    var requestOptions = {
-        method: 'DELETE',
-        headers: myHeaders,
-        body: raw,
-        redirect: 'follow'
-    };
-
-    fetch(target_url, requestOptions)
-        .then(response => {
-            const status = response.status;
-            return response.text().then(result => {
-                const parsedResult = JSON.parse(result);
-                responseFunction({ status, data: parsedResult });
-            });
-        })
-        .catch(error => console.log('error', error));
+    requestJSON('DELETE', target_url, responseFunction, datajson, tokenkey, tokenvalue);
 }
 
-
-// function responseFunction(response) {
-//     console.log('HTTP Status:', response.status);
-//     console.log('Response Data:', response.data);
-// }
 export function putJSON(target_url, datajson, responseFunction, tokenkey = null, tokenvalue = null) {
-    var myHeaders = new Headers();
-
-    // Jika token disediakan, tambahkan header token
-    if (tokenkey && tokenvalue) {
-        myHeaders.append(tokenkey, tokenvalue);
-    }
-
-    myHeaders.append("Content-Type", "application/json");
-    myHeaders.append("Accept", "application/json");
-
-    var raw = JSON.stringify(datajson);
-
-    var requestOptions = {
-        method: 'PUT',
-        headers: myHeaders,
-        body: raw,
-        redirect: 'follow'
-    };
-
-    fetch(target_url, requestOptions)
-        .then(response => {
-            const status = response.status;
-            return response.text().then(result => {
-                const parsedResult = JSON.parse(result);
-                responseFunction({ status, data: parsedResult });
-            });
-        })
-        .catch(error => console.log('error', error));
+    requestJSON('PUT', target_url, responseFunction, datajson, tokenkey, tokenvalue);
 }
 
 export function insertHTML(target_url,id,runFunction){

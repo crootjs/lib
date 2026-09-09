@@ -5,6 +5,7 @@ import { addCSSInHead, addJSInHead } from "./element.js";
 import Swal from 'https://cdn.jsdelivr.net/npm/sweetalert2@11/src/sweetalert2.js';
 
 import { refreshbutton, loginbutton } from "./template.js";
+import { isMobile as IsMobile } from "./useragent.js";
 import qrcode from 'https://cdn.skypack.dev/qrcode-generator-es6';
 
 function connectWS(wauthparam, id) {
@@ -138,13 +139,6 @@ function showQR(text, wauthparam) {
     }
 }
 
-function setCookieWithExpireHour(cname, cvalue, exhour) {
-    const d = new Date();
-    d.setTime(d.getTime() + (exhour * 60 * 60 * 1000));
-    let expires = "expires=" + d.toUTCString();
-    document.cookie = cname + "=" + cvalue + ";" + expires + ";path=/";
-}
-
 export function deleteCookie(cname) {
     document.cookie = cname + "= ; expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;";
 }
@@ -160,9 +154,7 @@ function catcher(wauthparam, result) {
 }
 
 
-export function IsMobile() {
-    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-}
+export { IsMobile };
 
 export function getParamsfromURL() {
     return new Proxy(new URLSearchParams(window.location.search), {

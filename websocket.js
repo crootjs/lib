@@ -1,17 +1,12 @@
-export function openWebSocketSetId(id,url_ws){
-    if (window["WebSocket"]) { //check browser support
-      connectws(id,url_ws).then(function(server) {
-        let wsocket=server;
-      }).catch(function(err) {
-        console.log("socket error");
-      });
-    } else {
+export function openWebSocketSetId(id, url_ws, onMessage) {
+    if (!window["WebSocket"]) { //check browser support
         alert("Please Update Your browser to the latest version.");
+        return Promise.reject(new Error("WebSocket not supported"));
     }
-    return wsocket;
-  }
-  
-export function connectws(id,url_ws) {
+    return connectws(id, url_ws, onMessage);
+}
+
+export function connectws(id, url_ws, onMessage) {
   return new Promise(function(resolve, reject) {
       let wsconn = new WebSocket(atob(url_ws));
       wsconn.onopen = function() {
@@ -27,9 +22,10 @@ export function connectws(id,url_ws) {
         console.log("connection closed");
       };
       wsconn.onmessage = function (evt) {
-        let messages = evt.data;
         console.log("incoming message");
-        catcher(messages);
+        if (typeof onMessage === "function") {
+            onMessage(evt.data);
+        }
       };
 
   });

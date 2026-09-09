@@ -1,5 +1,5 @@
-import { IsMobile, getParamsfromURL } from "./whatsauth.js"
-import { FillformLogin, SubmitLogin } from "./helper.js";
+import { getParamsfromURL } from "./auth.js";
+import { isMobile } from "./useragent.js";
 
 export const DefaultFailer = (_) => {
     alert("maaaf kakak, jangan lupa Swalnya dimasukkan ke html............")
@@ -13,9 +13,6 @@ export const DefaultFailer = (_) => {
 
 export const DefaultSuccesser = (json) => {
     console.log(json)
-    FillformLogin(jsonres, autoinjector.id_form_user, autoinjector.id_form_password);
-    SubmitLogin(autoinjector.using_click, autoinjector.id_button, autoinjector.id_form);
-
 }
 
 
@@ -34,7 +31,7 @@ export let wauthparam = {
     rto: 0,
     countdown: 0,
     wsocket: 0,
-    mobile: IsMobile(),
+    mobile: isMobile(),
     urlgetparams: getParamsfromURL(),
     jsonres: null,
     uuid: null,
@@ -53,7 +50,7 @@ export let autoinjector = {
     tokencookiehourslifetime: 2,
     tokencookiename: "login",
     apphost: btoa(document.location.href),
-    mobile: IsMobile(),
+    mobile: isMobile(),
     urlgetparams: getParamsfromURL(),
     failer: DefaultFailer,
     successer: DefaultSuccesser,
