@@ -91,6 +91,24 @@ export function getTextSelect(id){
     return sel.options[sel.selectedIndex].text;
 }
 
+export function serializeForm(id){
+    const form = document.getElementById(id);
+    const result = {};
+    for (const el of form.elements){
+        if (!el.name || el.disabled) continue;
+        if (el.type === "checkbox"){
+            result[el.name] = el.checked;
+        } else if (el.type === "radio"){
+            if (el.checked) result[el.name] = el.value;
+        } else if (el.type === "file"){
+            continue; // file inputs need api.js's postFile*/postFileJSON, not JSON
+        } else {
+            result[el.name] = el.value;
+        }
+    }
+    return result;
+}
+
 export function getFileSize(id){
     let inputElement = document.getElementById(id);
     let files = inputElement.files;
