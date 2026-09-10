@@ -1,3 +1,5 @@
+const DEFAULT_TIMEOUT_MS = 15000;
+
 function requestJSON(method, target_url, responseFunction, datajson, tokenkey, tokenvalue) {
     let myHeaders = new Headers();
 
@@ -9,10 +11,14 @@ function requestJSON(method, target_url, responseFunction, datajson, tokenkey, t
     myHeaders.append("Content-Type", "application/json");
     myHeaders.append("Accept", "application/json");
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+
     let requestOptions = {
         method,
         redirect: 'follow',
-        headers: myHeaders
+        headers: myHeaders,
+        signal: controller.signal
     };
     if (datajson !== undefined) {
         requestOptions.body = JSON.stringify(datajson);
@@ -22,11 +28,24 @@ function requestJSON(method, target_url, responseFunction, datajson, tokenkey, t
         .then(response => {
             const status = response.status;
             return response.text().then(result => {
-                const parsedResult = JSON.parse(result);
+                let parsedResult;
+                try {
+                    parsedResult = JSON.parse(result);
+                } catch (parseError) {
+                    parsedResult = null;
+                }
                 responseFunction({ status, data: parsedResult });
             });
         })
-        .catch(error => console.log('error', error));
+        .catch(error => {
+            // Jaringan gagal, request timeout, atau CORS ditolak - fetch() tidak pernah
+            // resolve dengan sebuah response, jadi responseFunction tidak akan pernah
+            // dipanggil kalau ini tidak ditangani. status:0 menandakan kegagalan jaringan
+            // (bukan status HTTP asli, yang selalu >= 100).
+            console.log('error', error);
+            responseFunction({ status: 0, data: null });
+        })
+        .finally(() => clearTimeout(timeoutId));
 }
 
 export function getJSON(target_url, responseFunction, tokenkey = null, tokenvalue = null) {
