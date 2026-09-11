@@ -1,5 +1,15 @@
 const DEFAULT_TIMEOUT_MS = 15000;
 
+// Menambahkan AbortController+timeout ke sebuah requestOptions object.
+// Mengembalikan { cancel } - panggil cancel() setelah request selesai (baik sukses/gagal)
+// supaya timer-nya tidak nyangkut.
+function withTimeout(requestOptions, timeoutMs = DEFAULT_TIMEOUT_MS) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    requestOptions.signal = controller.signal;
+    return { cancel: () => clearTimeout(timeoutId) };
+}
+
 function requestJSON(method, target_url, responseFunction, datajson, tokenkey, tokenvalue) {
     let myHeaders = new Headers();
 
@@ -11,15 +21,12 @@ function requestJSON(method, target_url, responseFunction, datajson, tokenkey, t
     myHeaders.append("Content-Type", "application/json");
     myHeaders.append("Accept", "application/json");
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
-
     let requestOptions = {
         method,
         redirect: 'follow',
-        headers: myHeaders,
-        signal: controller.signal
+        headers: myHeaders
     };
+    const { cancel } = withTimeout(requestOptions);
     if (datajson !== undefined) {
         requestOptions.body = JSON.stringify(datajson);
     }
@@ -45,7 +52,7 @@ function requestJSON(method, target_url, responseFunction, datajson, tokenkey, t
             console.log('error', error);
             responseFunction({ status: 0, data: null });
         })
-        .finally(() => clearTimeout(timeoutId));
+        .finally(cancel);
 }
 
 export function getJSON(target_url, responseFunction, tokenkey = null, tokenvalue = null) {
@@ -65,16 +72,24 @@ export function putJSON(target_url, datajson, responseFunction, tokenkey = null,
 }
 
 export function insertHTML(target_url,id,runFunction){
+    const element = document.getElementById(id);
+    if (!element) {
+        console.log("Not Found Element id : "+id+", please make sure the id attribut is exist to render html from "+target_url);
+        return;
+    }
+
     var requestOptions = {
     method: 'GET',
     redirect: 'follow'
     };
+    const { cancel } = withTimeout(requestOptions);
 
     fetch(target_url, requestOptions)
     .then(response => response.text())
-    .then(result => document.getElementById(id).innerHTML = result)
+    .then(result => element.innerHTML = result)
     .then(() => runFunction())
-    .catch(error => console.log("Not Found Element id : "+id+", please make sure the id attribut is exist to render html from "+target_url+" . If doesn't you'll get", error));
+    .catch(error => console.log("Failed to load HTML from "+target_url, error))
+    .finally(cancel);
 }
 
 export function getDomHTML(target_url,domFunction){
@@ -82,6 +97,7 @@ export function getDomHTML(target_url,domFunction){
     method: 'GET',
     redirect: 'follow'
     };
+    const { cancel } = withTimeout(requestOptions);
 
     fetch(target_url, requestOptions)
     .then(response => response.text())
@@ -90,7 +106,8 @@ export function getDomHTML(target_url,domFunction){
         const htmlDom = parser.parseFromString(result, "text/html");
         domFunction(htmlDom);
     })
-    .catch(error => console.log('error', error));
+    .catch(error => console.log('error', error))
+    .finally(cancel);
 }
 
 export function postFile(target_url,id,formdataname,responseFunction) {
@@ -103,11 +120,24 @@ export function postFile(target_url,id,formdataname,responseFunction) {
         body: formData,
         redirect: 'follow'
         };
-    
+    const { cancel } = withTimeout(requestOptions);
+
     fetch(target_url, requestOptions)
     .then(response => response.text())
-    .then(result => responseFunction(JSON.parse(result)))
-    .catch(error => console.log('error', error));
+    .then(result => {
+        let parsed;
+        try {
+            parsed = JSON.parse(result);
+        } catch (parseError) {
+            parsed = null;
+        }
+        responseFunction(parsed);
+    })
+    .catch(error => {
+        console.log('error', error);
+        responseFunction(null);
+    })
+    .finally(cancel);
 }
 
 //make sure formdataname use in the backend to get data file
@@ -126,11 +156,24 @@ export function postFileWithHeader(target_url,tokenkey,tokenvalue,id,formdatanam
         redirect: 'follow',
         headers: myHeaders
         };
-    
+    const { cancel } = withTimeout(requestOptions);
+
     fetch(target_url, requestOptions)
     .then(response => response.text())
-    .then(result => responseFunction(JSON.parse(result)))
-    .catch(error => console.log('error', error));
+    .then(result => {
+        let parsed;
+        try {
+            parsed = JSON.parse(result);
+        } catch (parseError) {
+            parsed = null;
+        }
+        responseFunction(parsed);
+    })
+    .catch(error => {
+        console.log('error', error);
+        responseFunction(null);
+    })
+    .finally(cancel);
 }
 
 // function responseFunction(response) {
@@ -153,17 +196,32 @@ export function postFileJSON(target_url, tokenkey, tokenvalue, id, formdataname,
         redirect: 'follow',
         headers: myHeaders
     };
+    const { cancel } = withTimeout(requestOptions);
 
     fetch(target_url, requestOptions)
     .then(response => response.text().then(data => ({
         status: response.status,
         data: data
     })))
-    .then(result => responseFunction({
-        status: result.status,
-        data: JSON.parse(result.data)
-    }))
-    .catch(error => console.log('error', error));
+    .then(result => {
+        let parsed;
+        try {
+            parsed = JSON.parse(result.data);
+        } catch (parseError) {
+            parsed = null;
+        }
+        responseFunction({ status: result.status, data: parsed });
+    })
+    .catch(error => {
+        console.log('error', error);
+        responseFunction({ status: 0, data: null });
+    })
+    .finally(cancel);
+}
+
+// Mem-parse response.json() dengan aman - resolve ke null (bukan reject) kalau body-nya bukan JSON valid.
+function safeJSON(response) {
+    return response.json().catch(() => null);
 }
 
 //get file and download it into your browser, if not 200 then return json
@@ -176,6 +234,7 @@ export function getFileWithHeader(target_url, tokenkey, tokenvalue, responseFunc
         redirect: 'follow',
         headers: myHeaders
     };
+    const { cancel } = withTimeout(requestOptions);
 
     fetch(target_url, requestOptions)
         .then(response => {
@@ -193,10 +252,14 @@ export function getFileWithHeader(target_url, tokenkey, tokenvalue, responseFunc
                 });
             } else {
                 // Jika status selain 200, parse sebagai JSON
-                return response.json().then(result => responseFunction(result));
+                return safeJSON(response).then(result => responseFunction(result));
             }
         })
-        .catch(error => console.log('error', error));
+        .catch(error => {
+            console.log('error', error);
+            responseFunction({ status: 0 });
+        })
+        .finally(cancel);
 }
 
 //get file bytes if 200, othen than return json
@@ -209,16 +272,21 @@ export function getFileBytesWithHeader(target_url, tokenkey, tokenvalue, respons
         redirect: 'follow',
         headers: myHeaders
     };
+    const { cancel } = withTimeout(requestOptions);
 
     fetch(target_url, requestOptions)
         .then(response => {
             if (response.status === 200) {
                 // Jika status 200, return fileBytes
-                return response.arrayBuffer();
+                return response.arrayBuffer().then(buffer => responseFunction(buffer));
             } else {
                 // Jika status selain 200, parse sebagai JSON
-                return response.json().then(result => responseFunction(result));
+                return safeJSON(response).then(result => responseFunction(result));
             }
         })
-        .catch(error => console.log('error', error));
+        .catch(error => {
+            console.log('error', error);
+            responseFunction({ status: 0 });
+        })
+        .finally(cancel);
 }

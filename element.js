@@ -170,17 +170,27 @@ export function enableInput(id) {
     Input.disabled = false;
 }
 
+const FETCH_TIMEOUT_MS = 15000;
+
+// fetch() bawaan tidak punya timeout - server yang menerima koneksi tapi tidak pernah
+// merespons akan membuat request menggantung selamanya tanpa ini.
+function fetchWithTimeout(url) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timeoutId));
+}
+
 export function renderHTML(id, urlHTML, callback = null) {
     // Ambil elemen berdasarkan ID
     const element = document.getElementById(id);
-    
+
     if (!element) {
         console.error(`Element with ID "${id}" not found.`);
         return;
     }
 
     // Ambil konten HTML dari URL
-    fetch(urlHTML)
+    fetchWithTimeout(urlHTML)
         .then(response => {
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
@@ -209,7 +219,7 @@ export function replaceTag(id, urlHTML, callback = null) {
         return;
     }
 
-    fetch(urlHTML)
+    fetchWithTimeout(urlHTML)
         .then(response => {
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
