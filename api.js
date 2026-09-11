@@ -71,10 +71,17 @@ export function putJSON(target_url, datajson, responseFunction, tokenkey = null,
     requestJSON('PUT', target_url, responseFunction, datajson, tokenkey, tokenvalue);
 }
 
-export function insertHTML(target_url,id,runFunction){
+// errorFunction (opsional) dipanggil dengan sebuah Error kalau elemen tidak ada,
+// server membalas status non-2xx, jaringan gagal, atau request timeout.
+export function insertHTML(target_url,id,runFunction,errorFunction = null){
+    const fail = (error) => {
+        console.log("Failed to load HTML from "+target_url+" into #"+id, error);
+        if (typeof errorFunction === 'function') errorFunction(error);
+    };
+
     const element = document.getElementById(id);
     if (!element) {
-        console.log("Not Found Element id : "+id+", please make sure the id attribut is exist to render html from "+target_url);
+        fail(new Error(`Element with ID "${id}" not found.`));
         return;
     }
 
@@ -85,10 +92,15 @@ export function insertHTML(target_url,id,runFunction){
     const { cancel } = withTimeout(requestOptions);
 
     fetch(target_url, requestOptions)
-    .then(response => response.text())
-    .then(result => element.innerHTML = result)
-    .then(() => runFunction())
-    .catch(error => console.log("Failed to load HTML from "+target_url, error))
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.text();
+    })
+    .then(result => { element.innerHTML = result; })
+    // Two-argument then: an exception thrown inside runFunction must not be reported as a load failure.
+    .then(() => runFunction(), fail)
     .finally(cancel);
 }
 

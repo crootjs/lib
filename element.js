@@ -180,12 +180,19 @@ function fetchWithTimeout(url) {
     return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timeoutId));
 }
 
-export function renderHTML(id, urlHTML, callback = null) {
+// errorCallback (opsional) dipanggil dengan sebuah Error kalau elemen tidak ada,
+// server membalas status non-2xx, jaringan gagal, atau request timeout.
+export function renderHTML(id, urlHTML, callback = null, errorCallback = null) {
+    const fail = (error) => {
+        console.error('Error loading HTML:', error);
+        if (typeof errorCallback === 'function') errorCallback(error);
+    };
+
     // Ambil elemen berdasarkan ID
     const element = document.getElementById(id);
 
     if (!element) {
-        console.error(`Element with ID "${id}" not found.`);
+        fail(new Error(`Element with ID "${id}" not found.`));
         return;
     }
 
@@ -199,15 +206,11 @@ export function renderHTML(id, urlHTML, callback = null) {
         })
         .then(html => {
             element.innerHTML = html; // Render HTML ke elemen
-
-            // Jika callback ada, jalankan setelah konten dimuat
-            if (callback && typeof callback === 'function') {
-                callback();
-            }
         })
-        .catch(error => {
-            console.error('Error loading HTML:', error);
-        });
+        // Two-argument then: an exception thrown inside callback must not be reported as a load failure.
+        .then(() => {
+            if (typeof callback === 'function') callback();
+        }, fail);
 }
 
 
