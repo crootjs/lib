@@ -22,6 +22,10 @@ export let wauthparam = {
     keyword: "aHR0cHM6Ly93YS5tZS82MjgxMTIwMDAyNzk/dGV4dD13aDR0NWF1dGgw",
     domaincookie: window.location.host,
     interval: 30,
+    // Detik soket uuid lama tetap dibiarkan terbuka sesudah QR berotasi, supaya
+    // pemindaian di detik-detik terakhir sebuah siklus tetap sempat masuk.
+    // Dibatasi maksimal sepanjang `interval`.
+    graceperiod: 15,
     maxqrwait: 90,
     tokencookiehourslifetime: 2,
     id_qr: "whatsauthqr",
@@ -31,6 +35,13 @@ export let wauthparam = {
     rto: 0,
     countdown: 0,
     wsocket: 0,
+    // Diisi qrController: true kalau soket QR yang sedang tampil terputus.
+    disconnected: false,
+    // Diisi catcher: true begitu token login diterima dan halaman berpindah.
+    loggedin: false,
+    // Opsional. Dipanggil dengan event close/error saat koneksi QR terputus,
+    // supaya pemanggil bisa ikut bereaksi (logging, retry, ganti tampilan).
+    onconnectionlost: null,
     mobile: isMobile(),
     urlgetparams: getParamsfromURL(),
     jsonres: null,

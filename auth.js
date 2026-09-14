@@ -8,9 +8,19 @@ import { refreshbutton, loginbutton } from "./template.js";
 import { isMobile as IsMobile } from "./useragent.js";
 import qrcode from 'https://cdn.skypack.dev/qrcode-generator-es6';
 
+// Lama (detik) soket uuid lama tetap dibiarkan terbuka sesudah QR berotasi.
+// Tanpa masa tenggang ini, pemindaian di detik-detik terakhir sebuah siklus
+// pasti gagal: pengguna memindai, berpindah ke aplikasi WhatsApp, lalu menekan
+// kirim beberapa detik kemudian — saat itu uuid-nya sudah tidak punya soket.
+const DEFAULT_GRACE_PERIOD = 15;
+
 function connectWS(wauthparam, id) {
     return new Promise(function (resolve, reject) {
         let wsconn = new WebSocket(atob(wauthparam.auth_ws));
+        // Dicatat begitu dibuat, bukan setelah onopen: rotasi QR bisa terjadi
+        // sebelum handshake selesai, dan soket yang belum tercatat tidak akan
+        // pernah ditutup.
+        wauthparam.wsocket = wsconn;
         wsconn.onopen = () => {
             wsconn.send(id);
             console.log("connected and set id");
@@ -18,10 +28,15 @@ function connectWS(wauthparam, id) {
         };
         wsconn.onerror = (err) => {
             console.log("socket error rejected");
+            reportLostConnection(wauthparam, wsconn, err);
             reject(err);
         };
         wsconn.onclose = (evt) => {
             console.log("connection closed");
+            // Soket yang dipensiunkan saat rotasi memang seharusnya tertutup.
+            // Yang perlu diberitahukan ke pengguna hanya kalau yang putus
+            // adalah soket milik QR yang sedang tampil di layar.
+            reportLostConnection(wauthparam, wsconn, evt);
         };
         wsconn.onmessage = (evt) => {
             let messages = evt.data;
@@ -44,9 +59,65 @@ function openWebSocketSetId(wauthparam, id) {
     }
 }
 
-function closeWebSocket(wauthparam) {
-    if (wauthparam.wsocket !== 0) {
-        wauthparam.wsocket.close();
+function graceSeconds(wauthparam) {
+    const grace = Number(wauthparam.graceperiod);
+    if (!Number.isFinite(grace) || grace < 0) {
+        return DEFAULT_GRACE_PERIOD;
+    }
+    // Masa tenggang tidak boleh melewati satu siklus penuh; kalau lewat, soket
+    // lama masih hidup saat uuid sesudahnya sudah berotasi lagi.
+    return Math.min(grace, wauthparam.interval);
+}
+
+// Melepas soket dari slot aktif lalu menutupnya sesudah masa tenggang habis.
+// Selama tenggang itu onmessage-nya masih jalan, jadi pesan WhatsApp yang
+// telat sedikit tetap bisa menuntaskan login.
+function retireWebSocket(wauthparam) {
+    const socket = wauthparam.wsocket;
+    if (!socket || typeof socket.close !== "function") {
+        wauthparam.wsocket = 0;
+        return;
+    }
+    // Dilepas lebih dulu supaya onclose-nya nanti tidak dianggap koneksi putus
+    // yang perlu dilaporkan ke pengguna.
+    wauthparam.wsocket = 0;
+    const grace = graceSeconds(wauthparam);
+    if (grace <= 0) {
+        socket.close();
+        return;
+    }
+    setTimeout(() => socket.close(), grace * 1000);
+}
+
+// Dipanggil dari onerror dan onclose. Hanya bereaksi kalau yang putus adalah
+// soket yang sedang dipakai QR di layar — soket pensiunan diabaikan.
+function reportLostConnection(wauthparam, wsconn, detail) {
+    if (wauthparam.wsocket !== wsconn) {
+        return;
+    }
+    // Login sudah lewat: backend memang menutup soket sesudah mengirim token,
+    // dan halaman sedang berpindah. Jangan sempat menampilkan "Connection Lost".
+    if (wauthparam.loggedin) {
+        return;
+    }
+    wauthparam.wsocket = 0;
+    wauthparam.disconnected = true;
+    showDisconnected(wauthparam);
+    if (typeof wauthparam.onconnectionlost === "function") {
+        wauthparam.onconnectionlost(detail);
+    }
+}
+
+// Menghentikan tampilan QR yang sudah pasti gagal dipindai dan menggantinya
+// dengan tombol muat ulang.
+function showDisconnected(wauthparam) {
+    const qr = document.getElementById(wauthparam.id_qr);
+    if (qr) {
+        qr.innerHTML = refreshbutton;
+    }
+    const counter = document.getElementById(wauthparam.id_counter);
+    if (counter) {
+        counter.innerHTML = "Connection Lost, Refresh Your Browser to get QR";
     }
 }
 
@@ -90,10 +161,18 @@ function generateUUID(wauthparam) {
 const sleepNow = (delay) => new Promise((resolve) => setTimeout(resolve, delay))
 
 export async function qrController(wauthparam) {
+    wauthparam.disconnected = false;
+    wauthparam.loggedin = false;
     for (let i = 1; i <= wauthparam.maxqrwait; i++) {
         await sleepNow(1000);
         setCounterandQR(wauthparam);
+        // Koneksi putus: showDisconnected sudah mengganti isi layar, jadi
+        // rotasi dihentikan supaya pesannya tidak ditimpa penghitung.
+        if (wauthparam.disconnected) {
+            return;
+        }
     }
+    retireWebSocket(wauthparam);
     var svg = document.getElementById(wauthparam.id_qr);
     svg.innerHTML = refreshbutton;
     document.getElementById(wauthparam.id_counter).innerHTML = "Refresh Your Browser to get QR";
@@ -102,7 +181,7 @@ export async function qrController(wauthparam) {
 function setCounterandQR(wauthparam) {
     document.getElementById(wauthparam.id_counter).innerHTML = wauthparam.countdown;
     if (wauthparam.countdown === 0) {
-        closeWebSocket(wauthparam);
+        retireWebSocket(wauthparam);
         wauthparam.countdown = wauthparam.interval;
         let uuid = generateUUID(wauthparam);
         let waurl = atob(wauthparam.keyword) + uuid;
@@ -148,6 +227,7 @@ function catcher(wauthparam, result) {
         let jsonres = JSON.parse(result);
         console.log("catcher runner");
         console.log(jsonres);
+        wauthparam.loggedin = true;
         setCookieWithExpireHour(wauthparam.tokencookiename, jsonres.login, wauthparam.tokencookiehourslifetime);
         window.location.replace(wauthparam.redirect);
     }
