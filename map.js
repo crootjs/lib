@@ -26,11 +26,10 @@ const STYLE_PROPERTIES = {
 const maps = new Map();        // id elemen -> state peta
 const records = new WeakMap(); // elemen SVG -> { feature, layer, shape } pemiliknya
 
-let stylesInjected = false;
+const CORNERS = ["top-left", "top-right", "bottom-left", "bottom-right"];
 
 function injectStyles() {
-    if (stylesInjected) return;
-    stylesInjected = true;
+    if (document.getElementById("crootjs-map-style")) return;
     const style = document.createElement("style");
     style.id = "crootjs-map-style";
     style.textContent = `
@@ -65,6 +64,33 @@ function injectStyles() {
    hanya berlaku di antara sesama tile, tidak sampai menutupi lapisan data di atasnya. */
 .crootjs-map-tiles { z-index: 0; }
 .crootjs-map svg.crootjs-map-vectors { z-index: 1; }
+/* Tempat modul tambahan (marker, penanda lokasi) menaruh elemen HTML-nya: di atas data,
+   di bawah popup. Lapisannya sendiri tembus klik; hanya elemen di dalamnya yang bisa diklik. */
+.crootjs-map-overlay {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 2;
+    pointer-events: none;
+}
+.crootjs-map-overlay > * { pointer-events: auto; }
+.crootjs-map-corner {
+    position: absolute;
+    z-index: 4;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 10px;
+    pointer-events: none;
+}
+.crootjs-map-corner > * { pointer-events: auto; cursor: auto; }
+.crootjs-map-top-left { left: 0; top: 0; align-items: flex-start; }
+.crootjs-map-top-right { right: 0; top: 0; align-items: flex-end; }
+.crootjs-map-bottom-left { left: 0; bottom: 0; align-items: flex-start; flex-direction: column-reverse; }
+/* naik sedikit supaya tidak menimpa atribusi peta dasar di pojok ini */
+.crootjs-map-bottom-right { right: 0; bottom: 14px; align-items: flex-end; flex-direction: column-reverse; }
 .crootjs-map img.crootjs-map-tile {
     position: absolute;
     max-width: none;
@@ -128,10 +154,6 @@ function injectStyles() {
 }
 .crootjs-map button.crootjs-map-popup-close:hover { background-color: #f3f4f6; color: #111827; }
 .crootjs-map-zoom {
-    position: absolute;
-    left: 10px;
-    top: 10px;
-    z-index: 4;
     display: flex;
     flex-direction: column;
     border-radius: 6px;
@@ -226,6 +248,15 @@ function zoomAround(state, zoom, point) {
     setView(state, state.x + dx / before - dx / after, state.y + dy / before - dy / after, zoom);
 }
 
+function toPoint(state, position) {
+    const world = worldSize(state.zoom);
+    const point = project(position);
+    return [
+        (point[0] - state.x) * world + state.width / 2,
+        (point[1] - state.y) * world + state.height / 2
+    ];
+}
+
 function toPosition(state, point) {
     const world = worldSize(state.zoom);
     return unproject([
@@ -253,6 +284,47 @@ function render(state) {
         state.zoomIn.disabled = state.zoom >= state.maxZoom;
         state.zoomOut.disabled = state.zoom <= state.minZoom;
     }
+
+    // Pendengar onMapMove dipanggil di frame yang sama dengan gambar barunya, supaya elemen
+    // yang mengikuti peta (marker) tidak tertinggal. Hanya kalau tampilannya memang berubah:
+    // render juga terpicu oleh hal lain, misalnya tile yang selesai dimuat.
+    const signature = [state.x, state.y, state.zoom, state.width, state.height].join(",");
+    if (signature !== state.signature) {
+        state.signature = signature;
+        const view = currentView(state);
+        state.moveHandlers.slice().forEach(runFunction => runFunction(view));
+    }
+}
+
+function currentView(state) {
+    return { center: unproject([state.x, state.y]), zoom: state.zoom };
+}
+
+function subscribeMove(state, runFunction) {
+    state.moveHandlers.push(runFunction);
+    return function stop() {
+        const index = state.moveHandlers.indexOf(runFunction);
+        if (index !== -1) state.moveHandlers.splice(index, 1);
+    };
+}
+
+// Menaruh sebuah elemen di salah satu pojok peta. Elemennya dibungkus supaya klik dan
+// geser di dalamnya tidak ikut menggeser peta.
+function addControl(state, element, corner) {
+    const name = CORNERS.includes(corner) ? corner : "top-right";
+    if (!state.corners[name]) {
+        const box = document.createElement("div");
+        box.className = "crootjs-map-corner crootjs-map-" + name;
+        state.root.appendChild(box);
+        state.corners[name] = box;
+    }
+    const slot = document.createElement("div");
+    slot.appendChild(element);
+    isolate(slot);
+    state.corners[name].appendChild(slot);
+    return function remove() {
+        slot.remove();
+    };
 }
 
 function addTile(state, z, x, y, key) {
@@ -682,8 +754,7 @@ function addZoomControl(state) {
     };
     state.zoomIn = button("Perbesar", "+", 1);
     state.zoomOut = button("Perkecil", "−", -1);
-    isolate(control);
-    state.root.appendChild(control);
+    addControl(state, control, "top-left");
 }
 
 function addAttribution(state, text) {
@@ -736,7 +807,9 @@ export function createMap(id, options = {}) {
     svg.setAttribute("class", "crootjs-map-vectors");
     const group = document.createElementNS(SVG_NS, "g");
     svg.appendChild(group);
-    root.append(tilePane, svg);
+    const overlay = document.createElement("div");
+    overlay.className = "crootjs-map-overlay";
+    root.append(tilePane, svg, overlay);
 
     const useDefaultTiles = options.tiles === undefined || options.tiles === true;
     const state = {
@@ -744,6 +817,10 @@ export function createMap(id, options = {}) {
         root,
         tilePane,
         group,
+        overlay,
+        corners: {},
+        moveHandlers: [],
+        signature: "",
         x: 0.5,
         y: 0.5,
         zoom: 0,
@@ -785,6 +862,31 @@ export function createMap(id, options = {}) {
     state.resizeObserver = new ResizeObserver(() => requestRender(state));
     state.resizeObserver.observe(root);
 
+    // Antarmuka untuk modul tambahan (mapmarker.js, mapcontrol.js, atau buatanmu sendiri).
+    // Dititipkan di elemennya, bukan diekspor, karena modul tambahan tidak boleh mengimpor
+    // map.js: halaman biasanya memuat map.min.js, sedangkan import "./map.js" dari modul lain
+    // memuat salinan kedua dengan daftar peta yang terpisah - dan petanya tidak akan ketemu.
+    container.crootjsMap = {
+        overlay,
+        toPoint: position => toPoint(state, position),
+        toPosition: point => toPosition(state, point),
+        getView: () => currentView(state),
+        setView: (center, zoom) => {
+            stopAnimation(state);
+            const point = project(center);
+            setView(state, point[0], point[1], zoom);
+            render(state);
+        },
+        panBy: (dx, dy) => {
+            panBy(state, dx, dy);
+            requestRender(state);
+        },
+        onMove: runFunction => subscribeMove(state, runFunction),
+        addControl: (element, corner) => addControl(state, element, corner),
+        showPopup: (position, content, offset) => openPopup(state, project(position), content, offset),
+        closePopup: () => hidePopup(state)
+    };
+
     maps.set(id, state);
     render(state);
 }
@@ -799,6 +901,7 @@ export function removeMap(id) {
     state.resizeObserver.disconnect();
     state.root.remove();
     if (state.restorePosition) state.container.style.position = "";
+    delete state.container.crootjsMap;
     maps.delete(id);
 }
 
@@ -817,6 +920,52 @@ export function getMapView(id) {
     const state = getMap(id);
     if (!state) return null;
     return { center: unproject([state.x, state.y]), zoom: state.zoom };
+}
+
+// Bagian dunia yang sedang terlihat, sebagai bbox [minLng, minLat, maxLng, maxLat].
+// Berguna untuk meminta ke backend hanya data di area yang tampak.
+export function getMapBounds(id) {
+    const state = getMap(id);
+    if (!state) return null;
+    const world = worldSize(state.zoom);
+    const halfWidth = state.width / 2 / world;
+    const halfHeight = state.height / 2 / world;
+    const southWest = unproject([clamp(state.x - halfWidth, 0, 1), clamp(state.y + halfHeight, 0, 1)]);
+    const northEast = unproject([clamp(state.x + halfWidth, 0, 1), clamp(state.y - halfHeight, 0, 1)]);
+    return [southWest[0], southWest[1], northEast[0], northEast[1]];
+}
+
+// Posisi [lng, lat] -> titik [x, y] dalam piksel, dihitung dari pojok kiri-atas peta.
+// Hasilnya bisa di luar ukuran peta kalau posisinya sedang tidak terlihat.
+export function mapToPoint(id, position) {
+    const state = getMap(id);
+    if (!state) return null;
+    return toPoint(state, position);
+}
+
+// Kebalikannya: titik [x, y] piksel dari pojok kiri-atas peta -> posisi [lng, lat].
+export function pointToPosition(id, point) {
+    const state = getMap(id);
+    if (!state) return null;
+    return toPosition(state, point);
+}
+
+// runFunction({ center, zoom }) dipanggil setiap kali tampilan berubah: digeser, di-zoom,
+// atau ukuran petanya berubah - termasuk di setiap frame selama gestur berlangsung.
+// Mengembalikan function stop() untuk berhenti mendengarkan.
+export function onMapMove(id, runFunction) {
+    const state = getMap(id);
+    if (!state) return () => {};
+    return subscribeMove(state, runFunction);
+}
+
+// Menaruh elemen buatanmu (tombol, legenda, dsb) di pojok peta: "top-left", "top-right"
+// (bawaan), "bottom-left", atau "bottom-right". Klik di dalamnya tidak menggeser peta.
+// Mengembalikan function remove() untuk mencabutnya lagi.
+export function addMapControl(id, element, corner = "top-right") {
+    const state = getMap(id);
+    if (!state) return () => {};
+    return addControl(state, element, corner);
 }
 
 // Memaskan tampilan ke seluruh data. `geojson` boleh GeoJSON apa pun yang diterima
