@@ -1,4 +1,4 @@
-// Modul tambahan untuk map.js: skala peta dan "lokasi saya".
+// Modul tambahan untuk map.js: skala peta, "lokasi saya", dan live tracking.
 // Sengaja tidak mengimpor map.js - petanya dijangkau lewat antarmuka yang dititipkan
 // createMap() di elemennya (element.crootjsMap), supaya map.js tidak termuat dua kali.
 
@@ -7,6 +7,9 @@ const LOCATE_TIMEOUT_MS = 15000;
 
 const LOCATE_ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">'
     + '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>';
+
+const TRACK_ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true">'
+    + '<path d="M3 11l18-8-8 18-2-8z"/></svg>';
 
 const locations = new WeakMap(); // lapisan overlay sebuah peta -> penanda lokasinya
 
@@ -45,6 +48,7 @@ function injectStyles() {
 }
 .crootjs-map button.crootjs-map-button:hover { background-color: #f3f4f6; }
 .crootjs-map button.crootjs-map-button:disabled { color: #9ca3af; cursor: progress; }
+.crootjs-map button.crootjs-map-button-active { color: #2563eb; }
 .crootjs-map-location {
     position: absolute;
     left: 0;
@@ -182,6 +186,122 @@ export function locateUser(id, responseFunction) {
         },
         { enableHighAccuracy: true, timeout: LOCATE_TIMEOUT_MS }
     );
+}
+
+// Mengikuti lokasi perangkat terus-menerus (live tracking): penanda lokasi di peta ikut
+// berpindah setiap kali browser melaporkan posisi baru, sampai stop() dipanggil.
+// responseFunction (opsional) dipanggil di setiap pembaruan dengan
+// { position: [lng, lat], accuracy, speed, heading, timestamp } - accuracy dalam meter,
+// speed dalam meter/detik dan heading dalam derajat dari utara (keduanya null kalau
+// perangkat tidak melaporkannya), timestamp dalam milidetik.
+// Kalau izin lokasi ditolak atau perangkat tidak mendukung, responseFunction dipanggil
+// sekali dengan null dan pelacakan berhenti. Gangguan sementara (sinyal hilang) tidak
+// menghentikan pelacakan; browser mencoba lagi sendiri.
+// options.follow (bawaan true): peta ikut bergeser supaya lokasinya tetap di tengah. Begitu
+// user menggeser peta sendiri, peta berhenti mengikuti - penandanya tetap diperbarui.
+// Mengembalikan function stop() untuk menghentikan pelacakan.
+export function trackUser(id, responseFunction, options = {}) {
+    const map = mapOf(id);
+    const respond = result => {
+        if (typeof responseFunction === "function") responseFunction(result);
+    };
+    if (!map || !navigator.geolocation) {
+        respond(null);
+        return () => {};
+    }
+
+    let follow = options.follow !== false;
+    let lastCenter = null; // pusat peta yang terakhir dipasang oleh pelacakan ini
+    let watchId = null;
+    const stop = () => {
+        if (watchId === null) return;
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+    };
+
+    watchId = navigator.geolocation.watchPosition(
+        result => {
+            const position = [result.coords.longitude, result.coords.latitude];
+            showLocation(map, position, result.coords.accuracy);
+            if (follow) {
+                const view = map.getView();
+                const moved = lastCenter
+                    && (Math.abs(view.center[0] - lastCenter[0]) > 1e-7 || Math.abs(view.center[1] - lastCenter[1]) > 1e-7);
+                if (moved) {
+                    // Pusat peta sudah bukan yang dipasang pelacakan: user menggesernya sendiri.
+                    follow = false;
+                } else {
+                    // Pembaruan pertama mendekatkan peta yang masih jauh; sesudahnya zoom pilihan user dipertahankan.
+                    map.setView(position, lastCenter ? view.zoom : Math.max(view.zoom, 16));
+                    lastCenter = map.getView().center;
+                }
+            }
+            respond({
+                position,
+                accuracy: result.coords.accuracy,
+                speed: result.coords.speed,
+                heading: result.coords.heading,
+                timestamp: result.timestamp
+            });
+        },
+        error => {
+            console.log("error", error);
+            // Kode 1 = izin ditolak: pelacakan tidak akan pernah berhasil, jadi dihentikan.
+            if (error.code === 1) {
+                stop();
+                respond(null);
+            }
+        },
+        { enableHighAccuracy: true, timeout: LOCATE_TIMEOUT_MS }
+    );
+    return stop;
+}
+
+// Menambahkan tombol live tracking ke peta: klik pertama memulai trackUser(), klik
+// berikutnya menghentikannya. Tombolnya berwarna biru selama pelacakan berjalan.
+// responseFunction dan options diteruskan ke trackUser().
+// corner: "top-left" (bawaan), "top-right", "bottom-left", atau "bottom-right".
+// Mengembalikan function remove() yang menghentikan pelacakan dan mencabut tombolnya.
+export function addTrackButton(id, responseFunction, options = {}, corner = "top-left") {
+    const map = mapOf(id);
+    if (!map) return () => {};
+    injectStyles();
+
+    let stop = null;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "crootjs-map-button";
+    button.title = "Ikuti lokasi saya";
+    button.setAttribute("aria-label", "Ikuti lokasi saya");
+    button.setAttribute("aria-pressed", "false");
+    button.innerHTML = TRACK_ICON;
+    const setActive = active => {
+        button.classList.toggle("crootjs-map-button-active", active);
+        button.setAttribute("aria-pressed", String(active));
+    };
+    const end = () => {
+        if (stop) stop();
+        stop = null;
+        setActive(false);
+    };
+    button.addEventListener("click", () => {
+        if (stop) {
+            end();
+            return;
+        }
+        setActive(true);
+        stop = trackUser(id, result => {
+            // null = pelacakan gagal dan sudah berhenti sendiri; tombol kembali ke keadaan mati.
+            if (result === null) end();
+            if (typeof responseFunction === "function") responseFunction(result);
+        }, options);
+    });
+    const removeControl = map.addControl(button, corner);
+
+    return function remove() {
+        end();
+        removeControl();
+    };
 }
 
 // Menambahkan tombol "lokasi saya" ke peta. Saat diklik, tombol memanggil locateUser()

@@ -25,6 +25,7 @@ const STYLE_PROPERTIES = {
 
 const maps = new Map();        // id elemen -> state peta
 const records = new WeakMap(); // elemen SVG -> { feature, layer, shape } pemiliknya
+const taps = new WeakMap();    // elemen milik modul tambahan -> function yang menangani tap padanya
 
 const CORNERS = ["top-left", "top-right", "bottom-left", "bottom-right"];
 
@@ -597,6 +598,16 @@ function snapZoom(state, point, direction = 0) {
 }
 
 function handleTap(state, target, point) {
+    // Elemen modul tambahan yang mendaftar lewat onTap() menangani tap-nya sendiri: peta tidak
+    // menganggapnya klik peta, dan popup yang sedang terbuka tidak ditutup.
+    for (let element = target; element && element !== state.root; element = element.parentElement) {
+        const runFunction = taps.get(element);
+        if (runFunction) {
+            runFunction();
+            return;
+        }
+    }
+
     const record = records.get(target);
     const world = worldSize(state.zoom);
     const tapped = [
@@ -882,6 +893,9 @@ export function createMap(id, options = {}) {
             requestRender(state);
         },
         onMove: runFunction => subscribeMove(state, runFunction),
+        // Tap (klik tanpa geser) pada sebuah elemen di overlay. Geseran yang berawal di elemen
+        // itu tetap menggeser peta, karena gesturnya tetap ditangani peta.
+        onTap: (element, runFunction) => taps.set(element, runFunction),
         addControl: (element, corner) => addControl(state, element, corner),
         showPopup: (position, content, offset) => openPopup(state, project(position), content, offset),
         closePopup: () => hidePopup(state)
