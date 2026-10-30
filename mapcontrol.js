@@ -1,4 +1,5 @@
-// Modul tambahan untuk map.js: skala peta, "lokasi saya", dan live tracking.
+// Modul tambahan untuk map.js: skala peta, "lokasi saya", live tracking, serta panel pilihan
+// peta dasar dan lapisan.
 // Sengaja tidak mengimpor map.js - petanya dijangkau lewat antarmuka yang dititipkan
 // createMap() di elemennya (element.crootjsMap), supaya map.js tidak termuat dua kali.
 
@@ -10,6 +11,11 @@ const LOCATE_ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
 
 const TRACK_ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true">'
     + '<path d="M3 11l18-8-8 18-2-8z"/></svg>';
+
+const LAYERS_ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true">'
+    + '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg>';
+
+let panelCount = 0; // untuk nama grup radio yang unik per halaman
 
 const locations = new WeakMap(); // lapisan overlay sebuah peta -> penanda lokasinya
 
@@ -78,6 +84,30 @@ function injectStyles() {
     box-sizing: content-box;
     transform: translate(-50%, -50%);
 }
+.crootjs-map-panel {
+    box-sizing: border-box;
+    min-width: 140px;
+    max-width: 240px;
+    max-height: 60vh;
+    overflow-y: auto;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background-color: #fff;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+    color: #1f2937;
+    font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+.crootjs-map-panel[hidden] { display: none; }
+.crootjs-map-panel-title { margin: 2px 0 4px; font-weight: 600; }
+.crootjs-map-panel label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 0;
+    cursor: pointer;
+}
+.crootjs-map-panel input { margin: 0; }
+.crootjs-map-panel-group + .crootjs-map-panel-group { margin-top: 6px; padding-top: 6px; border-top: 1px solid #e5e7eb; }
 `;
     document.head.appendChild(style);
 }
@@ -328,4 +358,109 @@ export function addLocateButton(id, responseFunction, corner = "top-left") {
         });
     });
     return map.addControl(button, corner);
+}
+
+
+// Panel daftar pilihan di pojok peta. collapsed: true = panelnya disimpan di balik tombol
+// ikon lapisan (dibuka-tutup dengan klik), cocok untuk layar sempit.
+function addPanel(map, title, rows, options) {
+    injectStyles();
+    const panel = document.createElement("div");
+    panel.className = "crootjs-map-panel";
+    const group = document.createElement("div");
+    group.className = "crootjs-map-panel-group";
+    if (title) {
+        const heading = document.createElement("div");
+        heading.className = "crootjs-map-panel-title";
+        heading.textContent = title;
+        group.appendChild(heading);
+    }
+    group.append(...rows);
+    panel.appendChild(group);
+
+    let control = panel;
+    if (options.collapsed) {
+        control = document.createElement("div");
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "crootjs-map-button";
+        button.title = title || "Lapisan";
+        button.setAttribute("aria-label", title || "Lapisan");
+        button.setAttribute("aria-expanded", "false");
+        button.innerHTML = LAYERS_ICON;
+        panel.hidden = true;
+        button.addEventListener("click", () => {
+            panel.hidden = !panel.hidden;
+            button.setAttribute("aria-expanded", String(!panel.hidden));
+        });
+        control.append(button, panel);
+    }
+    return map.addControl(control, options.corner || "top-right");
+}
+
+function choiceRow(type, name, text, checked, onChange) {
+    const label = document.createElement("label");
+    const input = document.createElement("input");
+    input.type = type;
+    input.name = name;
+    input.checked = checked;
+    input.addEventListener("change", onChange);
+    const span = document.createElement("span");
+    span.textContent = text;
+    label.append(input, span);
+    return { label, input };
+}
+
+// Menambahkan pilihan peta dasar (radio) ke peta. Memilih salah satu memanggil setTiles()
+// dari map.js - lapisan, marker, dan popup tetap di tempatnya.
+// basemaps: array { name, tiles, labels, maxNativeZoom, subdomains, errorTiles, attribution } -
+// semua kecuali name sama seperti opsi setTiles().
+// options (semua opsional):
+//   selected   indeks atau name peta dasar yang langsung dipasang. Default 0 (yang pertama).
+//   title      judul panel. Default "Peta dasar".
+//   corner     pojok peta. Default "top-right".
+//   collapsed  true = panel disimpan di balik tombol
+//   onChange   function (basemap) yang dipanggil setelah peta dasar diganti
+// Mengembalikan function remove() untuk mencabut panelnya (peta dasar terakhir tetap terpasang).
+export function addBasemapControl(id, basemaps, options = {}) {
+    const map = mapOf(id);
+    if (!map || !Array.isArray(basemaps) || basemaps.length === 0) return () => {};
+    const group = "crootjs-basemap-" + (++panelCount);
+    let selected = typeof options.selected === "string"
+        ? basemaps.findIndex(basemap => basemap.name === options.selected)
+        : (Number.isInteger(options.selected) ? options.selected : 0);
+    if (!basemaps[selected]) selected = 0;
+
+    const choose = index => {
+        const basemap = basemaps[index];
+        map.setTiles(basemap.tiles, basemap);
+        if (typeof options.onChange === "function") options.onChange(basemap);
+    };
+    const rows = basemaps.map((basemap, index) => choiceRow("radio", group, basemap.name || "Peta " + (index + 1), index === selected, () => choose(index)).label);
+    map.setTiles(basemaps[selected].tiles, basemaps[selected]);
+    return addPanel(map, options.title === undefined ? "Peta dasar" : options.title, rows, options);
+}
+
+// Menambahkan daftar centang untuk menampilkan/menyembunyikan lapisan bernama (opsi name
+// di addGeoJSON). Hanya mengubah visibilitas - lapisannya tidak digambar ulang.
+// layers: array nama, atau array { name, label }. Tanpa layers: semua lapisan bernama yang
+// sudah ada saat fungsi ini dipanggil.
+// options (semua opsional): title (default "Lapisan"), corner, collapsed, dan onChange -
+// function (name, visible) yang dipanggil setiap kali sebuah centang diubah.
+// Mengembalikan function remove() untuk mencabut panelnya.
+export function addLayerControl(id, layers, options = {}) {
+    const map = mapOf(id);
+    if (!map) return () => {};
+    const current = map.getLayers();
+    const items = (Array.isArray(layers) ? layers : current.map(layer => layer.name))
+        .map(item => (typeof item === "object" && item !== null ? item : { name: String(item) }));
+    const rows = items.map(item => {
+        const found = current.find(layer => layer.name === item.name);
+        const row = choiceRow("checkbox", "", item.label || item.name, found ? found.visible : true, () => {
+            map.setLayerVisible(item.name, row.input.checked);
+            if (typeof options.onChange === "function") options.onChange(item.name, row.input.checked);
+        });
+        return row.label;
+    });
+    return addPanel(map, options.title === undefined ? "Lapisan" : options.title, rows, options);
 }

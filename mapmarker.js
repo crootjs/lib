@@ -4,6 +4,19 @@
 
 const DRAG_THRESHOLD = 4; // piksel gerakan sebelum sebuah tekanan dianggap geser, bukan klik
 
+// anchor -> bagian marker (pecahan lebar dan tingginya, dari kiri-atas) yang menempel di posisinya.
+const ANCHORS = {
+    "center": [0.5, 0.5],
+    "top": [0.5, 0],
+    "bottom": [0.5, 1],
+    "left": [0, 0.5],
+    "right": [1, 0.5],
+    "top-left": [0, 0],
+    "top-right": [1, 0],
+    "bottom-left": [0, 1],
+    "bottom-right": [1, 1]
+};
+
 // Pin bawaan. Warnanya mengikuti properti CSS `color` elemen marker (fill="currentColor").
 const PIN = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 40" width="28" height="40" aria-hidden="true">'
     + '<path fill="currentColor" stroke="#fff" stroke-width="2" d="M14 1C6.8 1 1 6.8 1 14c0 9.4 13 25 13 25s13-15.6 13-25C27 6.8 21.2 1 14 1z"/>'
@@ -68,7 +81,9 @@ function mapOf(id) {
 //   size       [lebar, tinggi] gambar icon dalam piksel. Default [32, 32].
 //   element    elemen DOM buatan sendiri sebagai pengganti pin/icon
 //   anchor     bagian marker yang menempel di posisinya: "bottom" (default, ujung bawah
-//              di tengah - cocok untuk pin) atau "center" (cocok untuk ikon bulat)
+//              di tengah - cocok untuk pin), "center" (cocok untuk ikon bulat), "top",
+//              "left", "right", "top-left", "top-right", "bottom-left", atau "bottom-right"
+//   offset     [dx, dy] piksel geser tambahan dari titik jangkarnya (dy positif = ke bawah)
 //   label      teks yang selalu tampil di bawah marker
 //   title      teks bantuan saat kursor berada di atas marker
 //   popup      teks atau elemen DOM yang ditampilkan saat marker diklik
@@ -84,7 +99,8 @@ export function addMarker(id, position, options = {}) {
     }
     injectStyles();
 
-    const centered = options.anchor === "center";
+    const anchor = ANCHORS[options.anchor] || ANCHORS.bottom;
+    const offset = Array.isArray(options.offset) ? [Number(options.offset[0]) || 0, Number(options.offset[1]) || 0] : [0, 0];
     const interactive = Boolean(options.popup || options.onClick || options.draggable);
     const element = document.createElement("div");
     element.className = "crootjs-marker" + (options.draggable ? " crootjs-marker-draggable" : "");
@@ -120,7 +136,7 @@ export function addMarker(id, position, options = {}) {
     // Dipanggil ulang setiap kali peta bergerak, supaya marker tetap di posisinya.
     const place = () => {
         const point = map.toPoint(current);
-        element.style.transform = `translate(${Math.round(point[0])}px, ${Math.round(point[1])}px) translate(-50%, ${centered ? "-50%" : "-100%"})`;
+        element.style.transform = `translate(${Math.round(point[0] + offset[0])}px, ${Math.round(point[1] + offset[1])}px) translate(${-anchor[0] * 100}%, ${-anchor[1] * 100}%)`;
     };
     map.overlay.appendChild(element);
     place();
@@ -128,8 +144,8 @@ export function addMarker(id, position, options = {}) {
 
     const click = () => {
         if (options.popup) {
-            // Popup muncul di atas marker: jaraknya dari titik jangkar setinggi marker itu.
-            map.showPopup(current, options.popup, centered ? element.offsetHeight / 2 : element.offsetHeight);
+            // Popup muncul di atas marker: jaraknya dari titik jangkar sampai tepi atas marker.
+            map.showPopup(current, options.popup, Math.max(0, anchor[1] * element.offsetHeight - offset[1]));
         }
         if (typeof options.onClick === "function") options.onClick(current.slice());
     };
@@ -150,8 +166,8 @@ export function addMarker(id, position, options = {}) {
         start = pointOf(event);
         last = start;
         moved = false;
-        const anchor = map.toPoint(current);
-        grab = [start[0] - anchor[0], start[1] - anchor[1]];
+        const anchored = map.toPoint(current);
+        grab = [start[0] - anchored[0], start[1] - anchored[1]];
         try {
             element.setPointerCapture(event.pointerId);
         } catch (captureError) {

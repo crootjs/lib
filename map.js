@@ -8,6 +8,7 @@ export * from "./geo.js";
 const TILE_SIZE = 256;
 const MAX_LATITUDE = 85.0511287798; // batas lintang proyeksi Web Mercator
 const DEFAULT_TILES = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+const OSM_ATTRIBUTION = Symbol("osm"); // penanda atribusi bawaan untuk DEFAULT_TILES
 const SVG_NS = "http://www.w3.org/2000/svg";
 const DRAG_THRESHOLD = 4;       // piksel gerakan sebelum sebuah tekanan dianggap geser, bukan klik
 const REBUILD_DISTANCE = 4096;  // piksel geser sebelum path SVG dihitung ulang
@@ -20,8 +21,12 @@ const STYLE_PROPERTIES = {
     strokeWidth: "stroke-width",
     strokeOpacity: "stroke-opacity",
     fill: "fill",
-    fillOpacity: "fill-opacity"
+    fillOpacity: "fill-opacity",
+    strokeDasharray: "stroke-dasharray",
+    lineCap: "stroke-linecap",
+    lineJoin: "stroke-linejoin"
 };
+const LABEL_CELL = 64;          // piksel; ukuran sel grid pencari tabrakan label
 
 const maps = new Map();        // id elemen -> state peta
 const records = new WeakMap(); // elemen SVG -> { feature, layer, shape } pemiliknya
@@ -65,6 +70,38 @@ function injectStyles() {
    hanya berlaku di antara sesama tile, tidak sampai menutupi lapisan data di atasnya. */
 .crootjs-map-tiles { z-index: 0; }
 .crootjs-map svg.crootjs-map-vectors { z-index: 1; }
+/* Label fitur: z-index sama dengan data, tapi letaknya sesudah SVG jadi tampil di atasnya. */
+.crootjs-map-labels {
+    position: absolute;
+    left: 0;
+    top: 0;
+    z-index: 1;
+    pointer-events: none;
+}
+.crootjs-map-label {
+    position: absolute;
+    left: 0;
+    top: 0;
+    white-space: nowrap;
+    font-size: 12px;
+    font-weight: 600;
+    color: #1f2937;
+    text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff, 0 0 3px #fff;
+}
+.crootjs-map-tooltip {
+    position: absolute;
+    left: 0;
+    top: 0;
+    z-index: 3;
+    max-width: 240px;
+    padding: 3px 7px;
+    border-radius: 4px;
+    background-color: rgba(17, 24, 39, 0.9);
+    color: #fff;
+    font-size: 12px;
+    pointer-events: none;
+    overflow-wrap: anywhere;
+}
 /* Tempat modul tambahan (marker, penanda lokasi) menaruh elemen HTML-nya: di atas data,
    di bawah popup. Lapisannya sendiri tembus klik; hanya elemen di dalamnya yang bisa diklik. */
 .crootjs-map-overlay {
@@ -190,6 +227,7 @@ function injectStyles() {
     cursor: auto;
 }
 .crootjs-map-attribution a { color: #1d4ed8; text-decoration: none; }
+.crootjs-map-attribution[hidden] { display: none; }
 `;
     document.head.appendChild(style);
 }
@@ -279,7 +317,9 @@ function render(state) {
     state.width = state.root.clientWidth;
     state.height = state.root.clientHeight;
     renderTiles(state);
+    renderLayerVisibility(state);
     renderVectors(state);
+    renderLabels(state);
     renderPopup(state);
     if (state.zoomIn) {
         state.zoomIn.disabled = state.zoom >= state.maxZoom;
@@ -328,34 +368,94 @@ function addControl(state, element, corner) {
     };
 }
 
-function addTile(state, z, x, y, key) {
+// Pola URL tile -> URL satu tile. {s} subdomain (bergiliran supaya beban server tersebar),
+// {r} "@2x" di layar retina, {-y} nomor baris skema TMS (dihitung dari bawah).
+function tileSource(state, template, z, x, y) {
+    const subdomains = state.subdomains;
+    return template
+        .replace(/\{s\}/g, subdomains.length ? subdomains[Math.abs(x + y) % subdomains.length] : "")
+        .replace(/\{r\}/g, window.devicePixelRatio > 1 ? "@2x" : "")
+        .replace(/\{z\}/g, z)
+        .replace(/\{x\}/g, x)
+        .replace(/\{-y\}/g, Math.pow(2, z) - 1 - y)
+        .replace(/\{y\}/g, y);
+}
+
+function tileImage(onload) {
     const img = document.createElement("img");
-    const tile = { img, z, x, y, loaded: false };
     img.className = "crootjs-map-tile";
     img.alt = "";
     img.draggable = false;
     img.onload = () => {
-        tile.loaded = true;
         img.classList.add("crootjs-map-tile-loaded");
-        requestRender(state);
+        if (onload) onload();
     };
-    // Tile yang gagal dimuat dibiarkan kosong, tapi tetap dihitung selesai supaya tidak
-    // menahan pembersihan tile lama di renderTiles.
-    img.onerror = () => {
+    return img;
+}
+
+function addTile(state, z, x, y, key) {
+    const tile = { z, x, y, loaded: false, labels: [] };
+    const done = () => {
         tile.loaded = true;
         requestRender(state);
     };
-    img.src = state.tileURL.replace("{z}", z).replace("{x}", x).replace("{y}", y);
-    state.tiles.set(key, tile);
+    const img = tile.img = tileImage(done);
+    // Tile yang gagal dimuat diganti errorTiles kalau ada, atau dibiarkan kosong. Keduanya
+    // tetap dihitung selesai supaya tidak menahan pembersihan tile lama di renderTiles.
+    img.onerror = () => {
+        if (state.errorTileURL && img.getAttribute("src") !== state.errorTileURL) {
+            img.src = state.errorTileURL;
+        } else {
+            img.onerror = null;
+            done();
+        }
+    };
+    img.src = tileSource(state, state.tileURL, z, x, y);
     state.tilePane.appendChild(img);
+    // Tile label (transparan) menumpang posisi tile dasarnya. Yang gagal dimuat dibiarkan kosong.
+    tile.labels = state.labelURLs.map(template => {
+        const label = tileImage();
+        label.src = tileSource(state, template, z, x, y);
+        state.tilePane.appendChild(label);
+        return label;
+    });
+    state.tiles.set(key, tile);
+}
+
+function removeTile(state, key) {
+    const tile = state.tiles.get(key);
+    [tile.img, ...tile.labels].forEach(img => {
+        img.onload = null;
+        img.onerror = null;
+        img.remove();
+    });
+    state.tiles.delete(key);
+}
+
+// Memasang (atau mengganti) peta dasar. Tile dari peta dasar lama dibiarkan sampai tile
+// baru selesai dimuat - kuncinya diberi nomor generasi, jadi renderTiles menganggapnya
+// tile "lama" seperti saat zoom berubah - supaya peta tidak berkedip kosong.
+function configureTiles(state, tiles, options) {
+    const useDefault = tiles === undefined || tiles === true;
+    state.tileURL = useDefault ? DEFAULT_TILES : (tiles || null);
+    state.labelURLs = state.tileURL ? [].concat(options.labels || []) : [];
+    state.maxNativeZoom = Number.isFinite(options.maxNativeZoom) ? options.maxNativeZoom : Infinity;
+    state.subdomains = [].concat(options.subdomains === undefined ? ["a", "b", "c"] : options.subdomains);
+    if (typeof options.subdomains === "string") state.subdomains = options.subdomains.split("");
+    state.errorTileURL = options.errorTiles || null;
+    state.tileGeneration = (state.tileGeneration || 0) + 1;
+    if (!state.tileURL) [...state.tiles.keys()].forEach(key => removeTile(state, key));
+    state.baseAttribution = options.attribution || (useDefault ? OSM_ATTRIBUTION : null);
+    renderAttribution(state);
 }
 
 function renderTiles(state) {
     if (!state.tileURL) return;
 
     // Zoom boleh pecahan (saat pinch atau animasi); tile diambil dari level bulat terdekat
-    // lalu diskalakan.
-    const tileZoom = clamp(Math.round(state.zoom), 0, Math.floor(state.maxZoom));
+    // lalu diskalakan. Di atas maxNativeZoom server tidak punya tile lagi, jadi tile level
+    // itu yang diperbesar (overzoom).
+    const tileZoom = clamp(Math.round(state.zoom), 0, Math.floor(Math.min(state.maxZoom, state.maxNativeZoom)));
     const count = Math.pow(2, tileZoom);
     const world = worldSize(state.zoom);
     const left = state.x * world - state.width / 2;  // tepi kiri-atas tampilan, dalam piksel dunia
@@ -367,7 +467,7 @@ function renderTiles(state) {
     const yEnd = Math.min(count - 1, Math.floor((top + state.height) / size));
     for (let x = Math.max(0, Math.floor(left / size)); x <= xEnd; x++) {
         for (let y = Math.max(0, Math.floor(top / size)); y <= yEnd; y++) {
-            const key = `${tileZoom}/${x}/${y}`;
+            const key = `${state.tileGeneration}:${tileZoom}/${x}/${y}`;
             needed.add(key);
             if (!state.tiles.has(key)) addTile(state, tileZoom, x, y, key);
         }
@@ -383,16 +483,15 @@ function renderTiles(state) {
         const x = tile.x * tileSize - left;
         const y = tile.y * tileSize - top;
         const visible = x < state.width && y < state.height && x + tileSize > 0 && y + tileSize > 0;
-        // Tile dari level zoom sebelumnya dipertahankan (diskalakan) sampai tile level
-        // sekarang selesai dimuat, supaya peta tidak berkedip kosong setiap kali zoom berubah.
+        // Tile dari level zoom sebelumnya (atau peta dasar sebelumnya) dipertahankan
+        // (diskalakan) sampai tile sekarang selesai dimuat, supaya peta tidak berkedip kosong
+        // setiap kali zoom atau peta dasarnya berubah.
         const keep = needed.has(key) || (loading && tile.loaded && visible && Math.abs(tile.z - tileZoom) <= 2);
         if (!keep) {
-            tile.img.onload = null;
-            tile.img.onerror = null;
-            tile.img.remove();
-            state.tiles.delete(key);
+            removeTile(state, key);
             return;
         }
+        const current = tile.z === tileZoom && key.startsWith(state.tileGeneration + ":");
         // Tepi kiri dan kanan dibulatkan sendiri-sendiri supaya tile bersebelahan tidak
         // menyisakan garis celah pada zoom pecahan.
         const px = Math.round(x);
@@ -401,7 +500,12 @@ function renderTiles(state) {
         tile.img.style.top = py + "px";
         tile.img.style.width = (Math.round(x + tileSize) - px) + "px";
         tile.img.style.height = (Math.round(y + tileSize) - py) + "px";
-        tile.img.style.zIndex = tile.z === tileZoom ? 1 : 0;
+        tile.img.style.zIndex = current ? 1 : 0;
+        // Label selalu di atas semua tile dasar, termasuk tile dasar lama yang masih dipertahankan.
+        tile.labels.forEach(label => {
+            label.style.cssText = tile.img.style.cssText;
+            label.style.zIndex = current ? 3 : 2;
+        });
     });
 }
 
@@ -468,6 +572,196 @@ function renderVectors(state) {
         state.layers.forEach(layer => layer.shapes.forEach(shape => {
             if (shape.kind === "point") shape.element.setAttribute("r", shape.radius / scale);
         }));
+    }
+}
+
+function inZoomRange(zoom, range) {
+    return zoom >= range.minZoom && zoom <= range.maxZoom;
+}
+
+// Lapisan tampil kalau tidak disembunyikan dan zoom sekarang di dalam minZoom..maxZoom-nya.
+function layerShown(state, layer) {
+    return layer.visible && inZoomRange(state.zoom, layer);
+}
+
+function renderLayerVisibility(state) {
+    state.layers.forEach(layer => {
+        const shown = layerShown(state, layer);
+        if (shown === layer.shown) return;
+        layer.shown = shown;
+        layer.group.style.display = shown ? "" : "none";
+        if (!shown && state.hover && state.hover.layer === layer) clearHover(state);
+        if (!shown && state.popup && state.popup.layer === layer) hidePopup(state);
+    });
+}
+
+// Menulis gaya sebuah bentuk dari awal: gaya lapisan, lalu gaya hover di atasnya.
+function applyStyle(layer, shape, hovered) {
+    const base = (typeof layer.style === "function" ? layer.style(shape.feature) : layer.style) || {};
+    const style = hovered ? Object.assign({}, base, layer.hoverStyle) : base;
+    const element = shape.element;
+    element.removeAttribute("style");
+    Object.keys(STYLE_PROPERTIES).forEach(key => {
+        // Garis tidak pernah diisi, walaupun style yang sama dipakai untuk polygon.
+        if (style[key] === undefined || style[key] === null || (shape.kind === "line" && key.startsWith("fill"))) return;
+        const value = Array.isArray(style[key]) ? style[key].join(" ") : style[key];
+        element.style.setProperty(STYLE_PROPERTIES[key], value);
+    });
+    if (shape.kind === "point") {
+        const radius = Number.isFinite(style.radius) ? style.radius : 7;
+        if (radius !== shape.radius) {
+            shape.radius = radius;
+            // renderVectors menulis ulang jari-jari semua titik kalau skalanya dianggap berubah.
+            if (layer.state.built) layer.state.built.scale = 0;
+            requestRender(layer.state);
+        }
+    }
+}
+
+function setHover(state, layer, feature) {
+    if (state.hover && state.hover.layer === layer && state.hover.feature === feature) return;
+    clearHover(state);
+    state.hover = { layer, feature };
+    if (layer.hoverStyle) layer.shapes.forEach(shape => {
+        if (shape.feature === feature) applyStyle(layer, shape, true);
+    });
+    const content = layer.tooltip ? layer.tooltip(feature) : null;
+    if (content === null || content === undefined || content === "") return;
+    if (!state.tooltipElement) {
+        state.tooltipElement = document.createElement("div");
+        state.tooltipElement.className = "crootjs-map-tooltip";
+        state.tooltipElement.setAttribute("role", "tooltip");
+        state.root.appendChild(state.tooltipElement);
+    }
+    if (content instanceof Node) {
+        state.tooltipElement.replaceChildren(content);
+    } else {
+        state.tooltipElement.textContent = String(content);
+    }
+    state.tooltipElement.hidden = false;
+    state.hover.tooltip = true;
+}
+
+function clearHover(state) {
+    const hover = state.hover;
+    if (!hover) return;
+    state.hover = null;
+    if (hover.layer.hoverStyle) hover.layer.shapes.forEach(shape => {
+        if (shape.feature === hover.feature) applyStyle(hover.layer, shape, false);
+    });
+    if (state.tooltipElement) state.tooltipElement.hidden = true;
+}
+
+function moveTooltip(state, point) {
+    if (!state.hover || !state.hover.tooltip) return;
+    const element = state.tooltipElement;
+    // Di kanan-bawah kursor, atau di kirinya kalau sudah mepet tepi kanan peta.
+    const flip = point[0] + 14 + element.offsetWidth > state.width;
+    const x = flip ? point[0] - 10 - element.offsetWidth : point[0] + 14;
+    element.style.transform = `translate(${Math.round(x)}px, ${Math.round(point[1] + 14)}px)`;
+}
+
+// Titik tempat label sebuah geometri ditaruh, dalam koordinat proyeksi: titiknya sendiri,
+// tengah panjang garis (bagian terpanjang), atau titik berat polygon (yang terluas).
+function labelAnchor(geometry) {
+    if (!geometry) return null;
+    const coordinates = geometry.coordinates;
+    const lineMiddle = positions => {
+        const points = positions.map(project);
+        const lengths = points.slice(1).map((point, index) => Math.hypot(point[0] - points[index][0], point[1] - points[index][1]));
+        let rest = lengths.reduce((sum, length) => sum + length, 0) / 2;
+        for (let index = 0; index < lengths.length; index++) {
+            if (rest <= lengths[index]) {
+                const t = lengths[index] ? rest / lengths[index] : 0;
+                const from = points[index];
+                const to = points[index + 1];
+                return { point: [from[0] + (to[0] - from[0]) * t, from[1] + (to[1] - from[1]) * t], size: rest * 2 };
+            }
+            rest -= lengths[index];
+        }
+        return points.length ? { point: points[0], size: 0 } : null;
+    };
+    const centroid = rings => {
+        const points = (rings[0] || []).map(project);
+        let area = 0;
+        let x = 0;
+        let y = 0;
+        for (let index = 0, previous = points.length - 1; index < points.length; previous = index++) {
+            const cross = points[previous][0] * points[index][1] - points[index][0] * points[previous][1];
+            area += cross;
+            x += (points[previous][0] + points[index][0]) * cross;
+            y += (points[previous][1] + points[index][1]) * cross;
+        }
+        if (area === 0) return points.length ? { point: points[0], size: 0 } : null;
+        return { point: [x / (3 * area), y / (3 * area)], size: Math.abs(area) / 2 };
+    };
+    const largest = candidates => candidates.filter(Boolean).reduce((best, item) => (!best || item.size > best.size ? item : best), null);
+    switch (geometry.type) {
+        case "Point": return project(coordinates);
+        case "MultiPoint": return coordinates.length ? project(coordinates[0]) : null;
+        case "LineString": return (lineMiddle(coordinates) || {}).point || null;
+        case "MultiLineString": return (largest(coordinates.map(lineMiddle)) || {}).point || null;
+        case "Polygon": return (centroid(coordinates) || {}).point || null;
+        case "MultiPolygon": return (largest(coordinates.map(centroid)) || {}).point || null;
+        case "GeometryCollection": return geometry.geometries.map(labelAnchor).find(Boolean) || null;
+        default: return null;
+    }
+}
+
+// Menaruh label semua lapisan. Label yang menabrak label lain yang sudah ditaruh lebih dulu
+// disembunyikan; lapisan yang tampil di atas didahulukan, lalu urutan fitur di datanya.
+function renderLabels(state) {
+    const world = worldSize(state.zoom);
+    const grid = new Map(); // "kolom,baris" -> kotak label yang sudah ditaruh di sel itu
+    const collides = box => {
+        for (let column = Math.floor(box[0] / LABEL_CELL); column <= Math.floor(box[2] / LABEL_CELL); column++) {
+            for (let row = Math.floor(box[1] / LABEL_CELL); row <= Math.floor(box[3] / LABEL_CELL); row++) {
+                const placed = grid.get(column + "," + row);
+                if (placed && placed.some(other => box[0] < other[2] && box[2] > other[0] && box[1] < other[3] && box[3] > other[1])) return true;
+            }
+        }
+        return false;
+    };
+    const occupy = box => {
+        for (let column = Math.floor(box[0] / LABEL_CELL); column <= Math.floor(box[2] / LABEL_CELL); column++) {
+            for (let row = Math.floor(box[1] / LABEL_CELL); row <= Math.floor(box[3] / LABEL_CELL); row++) {
+                const key = column + "," + row;
+                if (!grid.has(key)) grid.set(key, []);
+                grid.get(key).push(box);
+            }
+        }
+    };
+
+    for (let index = state.layers.length - 1; index >= 0; index--) {
+        const layer = state.layers[index];
+        if (layer.labels.length === 0) continue;
+        const active = layerShown(state, layer) && inZoomRange(state.zoom, layer.labelRange);
+        layer.labels.forEach(label => {
+            let show = false;
+            if (active) {
+                const x = (label.anchor[0] - state.x) * world + state.width / 2;
+                const y = (label.anchor[1] - state.y) * world + state.height / 2;
+                if (!label.width) {
+                    label.width = label.element.offsetWidth;
+                    label.height = label.element.offsetHeight;
+                }
+                const box = [x - label.width / 2 - 2, y - label.height / 2 - 2, x + label.width / 2 + 2, y + label.height / 2 + 2];
+                const onScreen = box[2] > 0 && box[0] < state.width && box[3] > 0 && box[1] < state.height;
+                if (onScreen && label.width && (layer.labelOverlap || !collides(box))) {
+                    if (!layer.labelOverlap) occupy(box);
+                    show = true;
+                    const transform = `translate(${Math.round(box[0] + 2)}px, ${Math.round(box[1] + 2)}px)`;
+                    if (transform !== label.transform) {
+                        label.transform = transform;
+                        label.element.style.transform = transform;
+                    }
+                }
+            }
+            if (show !== label.shown) {
+                label.shown = show;
+                label.element.style.visibility = show ? "" : "hidden";
+            }
+        });
     }
 }
 
@@ -623,6 +917,8 @@ function handleTap(state, target, point) {
         } else {
             openPopup(state, tapped, content);
         }
+        // Popup ikut tertutup kalau lapisannya disembunyikan atau dihapus.
+        if (state.popup) state.popup.layer = record.layer;
     } else {
         hidePopup(state);
     }
@@ -678,11 +974,25 @@ function bindGestures(state) {
     });
 
     root.addEventListener("pointermove", event => {
-        if (!pointers.has(event.pointerId)) return;
+        if (!pointers.has(event.pointerId)) {
+            // Kursor yang melayang (tanpa tombol ditekan): hover dan tooltip. Hanya mouse; di
+            // layar sentuh tidak ada "melayang".
+            if (pointers.size === 0 && event.pointerType === "mouse") {
+                const record = records.get(event.target);
+                if (record && (record.layer.hoverStyle || record.layer.tooltip)) {
+                    setHover(state, record.layer, record.feature);
+                } else {
+                    clearHover(state);
+                }
+                moveTooltip(state, pointOf(event));
+            }
+            return;
+        }
         const point = pointOf(event);
         if (!moved) {
             if (Math.hypot(point[0] - start[0], point[1] - start[1]) < DRAG_THRESHOLD) return;
             moved = true;
+            clearHover(state);
             // Pointer baru ditangkap setelah jelas ini geseran: kalau ditangkap sejak
             // pointerdown, target pointerup selalu peta dan fitur yang diklik tidak diketahui.
             capture(event.pointerId);
@@ -712,6 +1022,7 @@ function bindGestures(state) {
     };
     root.addEventListener("pointerup", release);
     root.addEventListener("pointercancel", release);
+    root.addEventListener("pointerleave", () => clearHover(state));
 
     root.addEventListener("dblclick", event => {
         animateZoom(state, Math.round(state.zoom) + 1, pointOf(event));
@@ -768,22 +1079,50 @@ function addZoomControl(state) {
     addControl(state, control, "top-left");
 }
 
-function addAttribution(state, text) {
-    const element = document.createElement("div");
-    element.className = "crootjs-map-attribution";
-    if (text) {
-        element.textContent = text;
-    } else {
+function externalLink(href, text) {
+    const link = document.createElement("a");
+    link.href = href;
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.textContent = text;
+    return link;
+}
+
+// Satu sumber atribusi -> daftar node. Teks dipasang sebagai teks (bukan HTML); untuk
+// tautan, berikan elemen DOM.
+function attributionNodes(source) {
+    if (source === OSM_ATTRIBUTION) {
         // Lisensi data OpenStreetMap mewajibkan atribusi ini selama tile-nya dipakai.
-        const link = document.createElement("a");
-        link.href = "https://www.openstreetmap.org/copyright";
-        link.target = "_blank";
-        link.rel = "noopener";
-        link.textContent = "OpenStreetMap";
-        element.append("© ", link, " contributors");
+        return ["© ", externalLink("https://www.openstreetmap.org/copyright", "OpenStreetMap"), " contributors"];
     }
-    isolate(element);
-    state.root.appendChild(element);
+    if (source instanceof Node) return [source];
+    return source === null || source === undefined || source === "" ? [] : [String(source)];
+}
+
+// Atribusi = "CrootJS | sumber peta dasar | sumber tiap lapisan data", diperbarui setiap kali
+// peta dasar diganti atau lapisan ber-attribution ditambah/dihapus.
+function renderAttribution(state) {
+    if (!state.attributionElement) {
+        const element = document.createElement("div");
+        element.className = "crootjs-map-attribution";
+        isolate(element);
+        state.root.appendChild(element);
+        state.attributionElement = element;
+    }
+    const sources = [].concat(state.baseAttribution || [], ...state.layers.map(layer => layer.attribution || []));
+    const parts = [];
+    if (state.attributionPrefix) parts.push([externalLink("https://croot.js.org/", "CrootJS")]);
+    // Sumber yang sama (misalnya dua lapisan dari dataset yang sama) cukup ditulis sekali.
+    const seen = new Set();
+    sources.forEach(source => {
+        const nodes = attributionNodes(source);
+        const key = source instanceof Node ? source : String(source);
+        if (nodes.length === 0 || seen.has(key)) return;
+        seen.add(key);
+        parts.push(nodes);
+    });
+    state.attributionElement.replaceChildren(...parts.flatMap((nodes, index) => index ? [" | ", ...nodes] : nodes));
+    state.attributionElement.hidden = parts.length === 0;
 }
 
 // Membuat peta di dalam elemen ber-ID `id`. Elemen itu harus sudah punya tinggi dari CSS.
@@ -792,9 +1131,18 @@ function addAttribution(state, text) {
 //   zoom        default 4
 //   minZoom     default 1
 //   maxZoom     default 19
-//   tiles       pola URL tile raster dengan {z}, {x}, {y}. Default: OpenStreetMap.
+//   tiles       pola URL tile raster dengan {z}, {x}, {y}. Boleh juga memakai {s} (subdomain),
+//               {r} ("@2x" di layar retina), dan {-y} (baris skema TMS). Default: OpenStreetMap.
 //               false = tanpa peta dasar, hanya data yang digambar.
-//   attribution teks atribusi untuk `tiles` buatan sendiri
+//   attribution atribusi untuk `tiles` buatan sendiri: teks, elemen DOM (untuk tautan), atau
+//               array-nya kalau sumbernya lebih dari satu
+//   attributionPrefix  false = tanpa tautan "CrootJS" di depan atribusi
+//   maxNativeZoom  level tile tertinggi yang tersedia di server. Di atasnya tile level itu
+//               diperbesar (overzoom), jadi maxZoom boleh lebih tinggi. Default: maxZoom.
+//   labels      pola URL (atau array pola) tile label transparan yang digambar di atas
+//               `tiles`, misalnya nama tempat dan jalan di atas citra satelit (hybrid)
+//   subdomains  pengganti {s}: string ("abc") atau array. Default "abc".
+//   errorTiles  URL gambar pengganti tile yang gagal dimuat
 //   zoomControl false = tanpa tombol +/-
 //   scrollZoom  false = roda mouse tetap menggulung halaman, tidak men-zoom peta
 export function createMap(id, options = {}) {
@@ -818,16 +1166,18 @@ export function createMap(id, options = {}) {
     svg.setAttribute("class", "crootjs-map-vectors");
     const group = document.createElementNS(SVG_NS, "g");
     svg.appendChild(group);
+    const labelPane = document.createElement("div");
+    labelPane.className = "crootjs-map-labels";
     const overlay = document.createElement("div");
     overlay.className = "crootjs-map-overlay";
-    root.append(tilePane, svg, overlay);
+    root.append(tilePane, svg, labelPane, overlay);
 
-    const useDefaultTiles = options.tiles === undefined || options.tiles === true;
     const state = {
         container,
         root,
         tilePane,
         group,
+        labelPane,
         overlay,
         corners: {},
         moveHandlers: [],
@@ -839,13 +1189,16 @@ export function createMap(id, options = {}) {
         height: 0,
         minZoom: Number.isFinite(options.minZoom) ? options.minZoom : 1,
         maxZoom: Number.isFinite(options.maxZoom) ? options.maxZoom : 19,
-        tileURL: useDefaultTiles ? DEFAULT_TILES : (options.tiles || null),
         scrollZoom: options.scrollZoom !== false,
+        attributionPrefix: options.attributionPrefix !== false,
         tiles: new Map(),
         layers: [],
+        layerCount: 0,
         built: null,
         popup: null,
         popupElement: null,
+        hover: null,
+        tooltipElement: null,
         clickHandlers: [],
         renderFrame: 0,
         zoomFrame: 0,
@@ -867,7 +1220,7 @@ export function createMap(id, options = {}) {
     setView(state, center[0], center[1], Number.isFinite(options.zoom) ? options.zoom : 4);
 
     if (options.zoomControl !== false) addZoomControl(state);
-    if (useDefaultTiles || options.attribution) addAttribution(state, options.attribution);
+    configureTiles(state, options.tiles, options);
     bindGestures(state);
 
     state.resizeObserver = new ResizeObserver(() => requestRender(state));
@@ -898,7 +1251,13 @@ export function createMap(id, options = {}) {
         onTap: (element, runFunction) => taps.set(element, runFunction),
         addControl: (element, corner) => addControl(state, element, corner),
         showPopup: (position, content, offset) => openPopup(state, project(position), content, offset),
-        closePopup: () => hidePopup(state)
+        closePopup: () => hidePopup(state),
+        setTiles: (tiles, tileOptions) => {
+            configureTiles(state, tiles, tileOptions || {});
+            render(state);
+        },
+        getLayers: () => listLayers(state),
+        setLayerVisible: (name, visible) => setLayerVisible(state, name, visible)
     };
 
     maps.set(id, state);
@@ -984,7 +1343,9 @@ export function addMapControl(id, element, corner = "top-right") {
 
 // Memaskan tampilan ke seluruh data. `geojson` boleh GeoJSON apa pun yang diterima
 // parseGeoJSON, atau langsung sebuah bbox [minLng, minLat, maxLng, maxLat].
-// padding: jarak kosong (piksel) antara data dan tepi peta.
+// padding: jarak kosong (piksel) antara data dan tepi peta. Boleh per sisi,
+// { top, right, bottom, left }, misalnya supaya data tidak tertutup panel di kiri; sisi
+// yang tidak disebut tetap 24.
 export function fitMap(id, geojson, padding = 24) {
     const state = getMap(id);
     if (!state) return;
@@ -1000,30 +1361,60 @@ export function fitMap(id, geojson, padding = 24) {
     const spanX = Math.abs(northEast[0] - southWest[0]);
     const spanY = Math.abs(southWest[1] - northEast[1]);
 
+    const side = name => {
+        const value = typeof padding === "object" && padding !== null ? padding[name] : padding;
+        return Number.isFinite(value) ? value : 24;
+    };
+    const top = side("top");
+    const right = side("right");
+    const bottom = side("bottom");
+    const left = side("left");
+
     let zoom = SINGLE_POINT_ZOOM;
     if (spanX > 0 || spanY > 0) {
         zoom = Math.log2(Math.min(
-            (state.width - 2 * padding) / (spanX * TILE_SIZE),
-            (state.height - 2 * padding) / (spanY * TILE_SIZE)
+            (state.width - left - right) / (spanX * TILE_SIZE),
+            (state.height - top - bottom) / (spanY * TILE_SIZE)
         ));
         // Peta yang belum punya ukuran (misalnya masih display: none) tidak bisa dipaskan.
         if (!Number.isFinite(zoom)) zoom = state.minZoom;
         // Dibulatkan ke bawah supaya tile raster tetap tajam dan datanya tetap muat.
         if (state.tileURL) zoom = Math.floor(zoom);
     }
-    setView(state, (southWest[0] + northEast[0]) / 2, (southWest[1] + northEast[1]) / 2, zoom);
+    setView(state, NaN, NaN, zoom);
+    // Tengah data jatuh di tengah area yang tersisa setelah padding, bukan di tengah peta.
+    const world = worldSize(state.zoom);
+    setView(state,
+        (southWest[0] + northEast[0]) / 2 - (left - right) / 2 / world,
+        (southWest[1] + northEast[1]) / 2 - (top - bottom) / 2 / world);
     render(state);
 }
 
 // Menggambar GeoJSON di atas peta. `geojson` boleh apa pun yang diterima parseGeoJSON:
 // FeatureCollection, satu Feature, satu geometri, atau array-nya.
 // options (semua opsional):
-//   style  object { stroke, strokeWidth, strokeOpacity, fill, fillOpacity, radius },
-//          atau function (feature) => object untuk membedakan tiap fitur
+//   name   nama lapisan, untuk showLayer/hideLayer/setLayerStyle/setLayerOrder/removeLayer.
+//          Lapisan baru dengan nama yang sudah dipakai menggantikan lapisan lama itu.
+//   style  object { stroke, strokeWidth, strokeOpacity, strokeDasharray, lineCap, lineJoin,
+//          fill, fillOpacity, radius }, atau function (feature) => object untuk membedakan
+//          tiap fitur. strokeDasharray: "6 4" atau [6, 4] untuk garis putus-putus (piksel).
 //   popup  function (feature) => teks atau elemen DOM yang ditampilkan saat fitur diklik
 //          (null = tanpa popup untuk fitur itu). Default: daftar properties-nya.
 //          false = tanpa popup sama sekali.
-// Mengembalikan function remove() untuk menghapus lapisan ini dari peta.
+//   hoverStyle  object gaya yang ditimpakan selama kursor berada di atas sebuah fitur
+//   tooltip     function (feature) => teks atau elemen DOM yang mengikuti kursor di atas fitur
+//   label  nama properti yang ditulis sebagai label fitur, atau function (feature) => teks
+//          (null = tanpa label). Label ditaruh di titiknya, di tengah garis, atau di titik
+//          berat polygon; label yang bertabrakan dengan label lain disembunyikan.
+//   labelOptions  { minZoom, maxZoom, className, overlap } - overlap: true = tanpa
+//          penghindaran tabrakan
+//   minZoom, maxZoom  lapisan hanya tampil di rentang zoom ini
+//   order  urutan tumpuk: makin besar makin di atas. Default 0; yang sama urut ditambahkan.
+//   visible  false = ditambahkan dalam keadaan tersembunyi
+//   attribution  sumber data lapisan ini, ditambahkan ke atribusi peta selama lapisannya ada
+// Mengembalikan function remove() untuk menghapus lapisan ini dari peta. Function itu juga
+// punya remove.show(), remove.hide(), remove.setStyle(style), dan remove.setOrder(order),
+// untuk lapisan yang tidak diberi nama.
 export function addGeoJSON(id, geojson, options = {}) {
     const state = getMap(id);
     if (!state) return () => {};
@@ -1033,28 +1424,49 @@ export function addGeoJSON(id, geojson, options = {}) {
         return () => {};
     }
 
+    const name = options.name === undefined || options.name === null ? null : String(options.name);
+    if (name !== null) {
+        const existing = findLayer(state, name, true);
+        if (existing) detachLayer(state, existing);
+    }
+    const labelOptions = options.labelOptions || {};
+    const labelText = typeof options.label === "function" ? options.label
+        : (typeof options.label === "string" ? feature => (feature.properties || {})[options.label] : null);
     const layer = {
+        state,
+        name,
         group: document.createElementNS(SVG_NS, "g"),
         shapes: [],
-        popup: options.popup
+        labels: [],
+        popup: options.popup,
+        style: options.style,
+        hoverStyle: options.hoverStyle || null,
+        tooltip: typeof options.tooltip === "function" ? options.tooltip : null,
+        visible: options.visible !== false,
+        shown: null, // belum pernah ditulis; renderLayerVisibility selalu menulisnya sekali
+        minZoom: Number.isFinite(options.minZoom) ? options.minZoom : -Infinity,
+        maxZoom: Number.isFinite(options.maxZoom) ? options.maxZoom : Infinity,
+        labelRange: {
+            minZoom: Number.isFinite(labelOptions.minZoom) ? labelOptions.minZoom : -Infinity,
+            maxZoom: Number.isFinite(labelOptions.maxZoom) ? labelOptions.maxZoom : Infinity
+        },
+        labelOverlap: labelOptions.overlap === true,
+        order: Number.isFinite(options.order) ? options.order : 0,
+        sequence: state.layerCount++,
+        attribution: options.attribution || null
     };
     const markers = [];
 
     collection.features.forEach(feature => {
-        const style = (typeof options.style === "function" ? options.style(feature) : options.style) || {};
         shapesOf(feature.geometry).forEach(shape => {
             const element = document.createElementNS(SVG_NS, shape.kind === "point" ? "circle" : "path");
             element.setAttribute("class", "crootjs-map-" + shape.kind);
-            Object.keys(STYLE_PROPERTIES).forEach(key => {
-                // Garis tidak pernah diisi, walaupun style yang sama dipakai untuk polygon.
-                if (style[key] === undefined || (shape.kind === "line" && key.startsWith("fill"))) return;
-                element.style.setProperty(STYLE_PROPERTIES[key], style[key]);
-            });
             shape.element = element;
+            shape.feature = feature;
+            applyStyle(layer, shape, false);
             records.set(element, { feature, layer, shape });
             layer.shapes.push(shape);
             if (shape.kind === "point") {
-                shape.radius = Number.isFinite(style.radius) ? style.radius : 7;
                 markers.push(element);
                 return;
             }
@@ -1074,25 +1486,146 @@ export function addGeoJSON(id, geojson, options = {}) {
     // datang belakangan menutupi marker di dalamnya.
     markers.forEach(element => layer.group.appendChild(element));
 
-    state.group.appendChild(layer.group);
+    if (labelText) {
+        collection.features.forEach(feature => {
+            const text = labelText(feature);
+            const anchor = text === null || text === undefined || text === "" ? null : labelAnchor(feature.geometry);
+            if (!anchor) return;
+            const element = document.createElement("div");
+            element.className = "crootjs-map-label" + (labelOptions.className ? " " + labelOptions.className : "");
+            element.textContent = String(text);
+            element.style.visibility = "hidden";
+            layer.labels.push({ element, anchor, shown: false });
+        });
+        state.labelPane.append(...layer.labels.map(label => label.element));
+    }
+
     state.layers.push(layer);
+    sortLayers(state);
     state.built = null; // paksa renderVectors menulis koordinat lapisan baru ini
+    if (layer.attribution) renderAttribution(state);
     render(state);
 
-    return function remove() {
-        const index = state.layers.indexOf(layer);
-        if (index === -1) return;
-        state.layers.splice(index, 1);
-        layer.group.remove();
+    const remove = function remove() {
+        if (state.layers.includes(layer)) detachLayer(state, layer);
     };
+    remove.show = () => updateLayer(state, layer, () => { layer.visible = true; });
+    remove.hide = () => updateLayer(state, layer, () => { layer.visible = false; });
+    remove.setStyle = style => restyleLayer(state, layer, style);
+    remove.setOrder = order => updateLayer(state, layer, () => {
+        layer.order = Number.isFinite(order) ? order : 0;
+        sortLayers(state);
+    });
+    return remove;
+}
+
+// Urutan state.layers = urutan tumpuk (bawah ke atas). Grup SVG dan label ikut diurutkan.
+function sortLayers(state) {
+    state.layers.sort((a, b) => a.order - b.order || a.sequence - b.sequence);
+    state.layers.forEach(layer => {
+        state.group.appendChild(layer.group);
+        layer.labels.forEach(label => state.labelPane.appendChild(label.element));
+    });
+}
+
+function findLayer(state, name, quiet) {
+    const layer = state.layers.find(item => item.name === String(name));
+    if (!layer && !quiet) console.warn(`Lapisan "${name}" tidak ditemukan. Beri nama lewat addGeoJSON(id, data, { name: "${name}" }).`);
+    return layer;
+}
+
+function detachLayer(state, layer) {
+    state.layers.splice(state.layers.indexOf(layer), 1);
+    layer.group.remove();
+    layer.labels.forEach(label => label.element.remove());
+    if (state.hover && state.hover.layer === layer) clearHover(state);
+    if (state.popup && state.popup.layer === layer) hidePopup(state);
+    if (layer.attribution) renderAttribution(state);
+}
+
+function updateLayer(state, layer, change) {
+    if (!state.layers.includes(layer)) return;
+    change();
+    render(state);
+}
+
+function restyleLayer(state, layer, style) {
+    if (!state.layers.includes(layer)) return;
+    layer.style = style;
+    const hovered = state.hover && state.hover.layer === layer ? state.hover.feature : null;
+    layer.shapes.forEach(shape => applyStyle(layer, shape, shape.feature === hovered));
+}
+
+function setLayerVisible(state, name, visible) {
+    const layer = findLayer(state, name);
+    if (layer) updateLayer(state, layer, () => { layer.visible = Boolean(visible); });
+}
+
+function listLayers(state) {
+    return state.layers
+        .filter(layer => layer.name !== null)
+        .map(layer => ({ name: layer.name, visible: layer.visible, order: layer.order }));
+}
+
+// Menampilkan lagi lapisan bernama `name` yang disembunyikan hideLayer().
+export function showLayer(id, name) {
+    const state = getMap(id);
+    if (state) setLayerVisible(state, name, true);
+}
+
+// Menyembunyikan lapisan tanpa menghapusnya; popup dan hover miliknya ikut ditutup.
+export function hideLayer(id, name) {
+    const state = getMap(id);
+    if (state) setLayerVisible(state, name, false);
+}
+
+// Mengganti gaya seluruh lapisan. style: object atau function (feature) => object, sama
+// seperti opsi style di addGeoJSON.
+export function setLayerStyle(id, name, style) {
+    const state = getMap(id);
+    const layer = state && findLayer(state, name);
+    if (layer) restyleLayer(state, layer, style);
+}
+
+// Mengubah urutan tumpuk lapisan: makin besar makin di atas.
+export function setLayerOrder(id, name, order) {
+    const state = getMap(id);
+    const layer = state && findLayer(state, name);
+    if (!layer) return;
+    updateLayer(state, layer, () => {
+        layer.order = Number.isFinite(order) ? order : 0;
+        sortLayers(state);
+    });
+}
+
+export function removeLayer(id, name) {
+    const state = getMap(id);
+    const layer = state && findLayer(state, name);
+    if (layer) detachLayer(state, layer);
+}
+
+// Daftar lapisan bernama, dari bawah ke atas: [{ name, visible, order }].
+export function getLayers(id) {
+    const state = getMap(id);
+    return state ? listLayers(state) : [];
+}
+
+// Mengganti peta dasar tanpa membuat ulang peta: lapisan, marker, dan popup tetap.
+// tiles: sama seperti opsi tiles di createMap (false = tanpa peta dasar).
+// options: labels, maxNativeZoom, subdomains, errorTiles, attribution - sama seperti di
+// createMap, dan semuanya kembali ke bawaan kalau tidak disebut.
+export function setTiles(id, tiles, options = {}) {
+    const state = getMap(id);
+    if (!state) return;
+    configureTiles(state, tiles, options);
+    render(state);
 }
 
 // Menghapus semua lapisan GeoJSON dan menutup popup. Peta dasarnya tetap.
 export function clearMap(id) {
     const state = getMap(id);
     if (!state) return;
-    state.layers.forEach(layer => layer.group.remove());
-    state.layers = [];
+    state.layers.slice().forEach(layer => detachLayer(state, layer));
     hidePopup(state);
 }
 
