@@ -260,7 +260,11 @@ function injectStyles() {
 .crootjs-map-attribution a { color: #1d4ed8; text-decoration: none; }
 .crootjs-map-attribution[hidden] { display: none; }
 `;
-    document.head.appendChild(style);
+    // Di awal <head> (sesudah style CrootJS lain), bukan di akhir: CSS halaman yang ditautkan
+    // sesudahnya menang tanpa !important, jadi tampilan bawaan ini mudah ditimpa.
+    const previous = [...document.head.querySelectorAll('style[id^="crootjs-"]')].pop();
+    if (previous) previous.after(style);
+    else document.head.prepend(style);
 }
 
 function clamp(value, min, max) {

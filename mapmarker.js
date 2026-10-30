@@ -64,7 +64,11 @@ function injectStyles() {
     pointer-events: none;
 }
 `;
-    document.head.appendChild(style);
+    // Di awal <head> (sesudah style CrootJS lain), bukan di akhir: CSS halaman yang ditautkan
+    // sesudahnya menang tanpa !important, jadi tampilan bawaan ini mudah ditimpa.
+    const previous = [...document.head.querySelectorAll('style[id^="crootjs-"]')].pop();
+    if (previous) previous.after(style);
+    else document.head.prepend(style);
 }
 
 function mapOf(id) {

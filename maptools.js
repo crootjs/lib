@@ -71,7 +71,11 @@ function injectStyles() {
 }
 .crootjs-map-measure-actions button:hover { background-color: #f3f4f6; }
 `;
-    document.head.appendChild(style);
+    // Di awal <head> (sesudah style CrootJS lain), bukan di akhir: CSS halaman yang ditautkan
+    // sesudahnya menang tanpa !important, jadi tampilan bawaan ini mudah ditimpa.
+    const previous = [...document.head.querySelectorAll('style[id^="crootjs-"]')].pop();
+    if (previous) previous.after(style);
+    else document.head.prepend(style);
 }
 
 function mapOf(id) {
@@ -489,25 +493,151 @@ function svgImage(svg, width, height, color) {
     return loadImage("data:image/svg+xml;charset=utf-8," + encodeURIComponent(source));
 }
 
-function drawText(context, element, rect, origin) {
-    const computed = getComputedStyle(element);
-    context.font = `${computed.fontWeight} ${computed.fontSize} ${computed.fontFamily}`;
-    context.textBaseline = "middle";
-    context.lineJoin = "round";
+function cssPixels(value, size) {
+    if (!value) return 0;
+    return value.endsWith("%") ? parseFloat(value) / 100 * size : parseFloat(value) || 0;
+}
+
+function transparent(color) {
+    return !color || color === "transparent" || /rgba\([^)]*,\s*0\)$/.test(color);
+}
+
+// Kotak elemen (latar, garis tepi, sudut membulat) seperti di layar.
+function drawBox(context, computed, rect, origin) {
     const x = rect.left - origin.left;
-    const y = rect.top - origin.top + rect.height / 2;
-    context.strokeStyle = "rgba(255, 255, 255, 0.9)";
-    context.lineWidth = 3;
-    context.strokeText(element.textContent, x, y);
+    const y = rect.top - origin.top;
+    const radius = Math.min(cssPixels(computed.borderTopLeftRadius, Math.min(rect.width, rect.height)), rect.width / 2, rect.height / 2);
+    const shape = inset => {
+        context.beginPath();
+        context.roundRect(x + inset, y + inset, rect.width - 2 * inset, rect.height - 2 * inset, Math.max(0, radius - inset));
+    };
+    if (!transparent(computed.backgroundColor)) {
+        shape(0);
+        context.fillStyle = computed.backgroundColor;
+        context.fill();
+    }
+    const border = parseFloat(computed.borderTopWidth) || 0;
+    if (border > 0 && computed.borderTopStyle !== "none" && !transparent(computed.borderTopColor)) {
+        shape(border / 2);
+        context.lineWidth = border;
+        context.strokeStyle = computed.borderTopColor;
+        context.stroke();
+    }
+}
+
+// Kecerahan relatif warna CSS "rgb(...)"/"rgba(...)" (0 gelap .. 1 terang), null kalau bukan rgb.
+function luminance(color) {
+    const parts = String(color).match(/[\d.]+/g);
+    if (!/^rgba?\(/.test(String(color)) || !parts || parts.length < 3) return null;
+    const channel = value => {
+        const c = Number(value) / 255;
+        return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * channel(parts[0]) + 0.7152 * channel(parts[1]) + 0.0722 * channel(parts[2]);
+}
+
+// Halo teks dari text-shadow elemennya: warna bayangan pertama, setebal blur-nya.
+// text-shadow: none = tanpa halo. Halo yang hampir sewarna dengan teksnya (misalnya teks putih
+// dengan bayangan putih) tidak menolong keterbacaan, jadi diganti warna yang kontras.
+function textHalo(computed) {
+    const shadow = computed.textShadow;
+    if (!shadow || shadow === "none") return null;
+    let color = (shadow.match(/rgba?\([^)]*\)|#[0-9a-f]{3,8}|[a-z]+/i) || [])[0];
+    const lengths = shadow.replace(/rgba?\([^)]*\)/g, "").match(/-?[\d.]+px/g) || [];
+    const blur = lengths.length >= 3 ? parseFloat(lengths[2]) : 2;
+    const text = luminance(computed.color);
+    const halo = luminance(color);
+    if (text !== null && halo !== null && (Math.max(text, halo) + 0.05) / (Math.min(text, halo) + 0.05) < 3) {
+        color = text > 0.4 ? "rgba(0, 0, 0, 0.85)" : "rgba(255, 255, 255, 0.9)";
+    }
+    return { color, width: Math.max(2, Math.min(6, blur * 1.5)) };
+}
+
+function fillText(context, text, x, y, computed) {
+    context.font = `${computed.fontStyle} ${computed.fontWeight} ${computed.fontSize} ${computed.fontFamily}`;
+    context.textBaseline = "middle";
+    const halo = textHalo(computed);
+    if (halo) {
+        context.lineJoin = "round";
+        context.lineWidth = halo.width;
+        context.strokeStyle = halo.color;
+        context.strokeText(text, x, y);
+    }
     context.fillStyle = computed.color;
-    context.fillText(element.textContent, x, y);
+    context.fillText(text, x, y);
+}
+
+// Isi ::before / ::after, misalnya ikon yang ditambahkan lewat CSS.
+function pseudoContent(element, which) {
+    const content = getComputedStyle(element, which).content;
+    if (!content || content === "none" || content === "normal") return "";
+    const match = content.match(/^"(.*)"$/s);
+    return match ? match[1] : "";
+}
+
+// Menggambar elemen HTML seperti tampilannya di layar: kotaknya, lalu isinya - teks diletakkan
+// per kata di posisi yang dihitung browser (jadi padding, perataan, dan baris ganda ikut
+// tepat), gambar dan SVG di dalamnya digambar sebagai gambar.
+async function drawElement(context, element, origin, state) {
+    const computed = getComputedStyle(element);
+    if (computed.display === "none" || computed.visibility === "hidden" || Number(computed.opacity) === 0) return;
+    const rect = element.getBoundingClientRect();
+    const tag = element.tagName.toLowerCase();
+    context.save();
+    context.globalAlpha *= Number(computed.opacity);
+
+    if (tag === "svg" || tag === "img") {
+        const image = tag === "svg"
+            ? await svgImage(element, rect.width, rect.height, computed.color)
+            : await loadImage(element.src);
+        if (image) context.drawImage(image, rect.left - origin.left, rect.top - origin.top, rect.width, rect.height);
+        else state.missing++;
+        context.restore();
+        return;
+    }
+
+    drawBox(context, computed, rect, origin);
+    const before = pseudoContent(element, "::before");
+    const after = pseudoContent(element, "::after");
+    let first = null;
+    let last = null;
+    for (const node of element.childNodes) {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+            await drawElement(context, node, origin, state);
+        } else if (node.nodeType === Node.TEXT_NODE) {
+            const pattern = /\S+/g;
+            let match;
+            while ((match = pattern.exec(node.data))) {
+                const range = document.createRange();
+                range.setStart(node, match.index);
+                range.setEnd(node, match.index + match[0].length);
+                const box = range.getBoundingClientRect();
+                if (!box.width) continue;
+                first = first || box;
+                last = box;
+                fillText(context, match[0], box.left - origin.left, box.top - origin.top + box.height / 2, computed);
+            }
+        }
+    }
+    // Isi ::before diletakkan tepat sebelum kata pertama, ::after sesudah kata terakhir.
+    if (before && first) {
+        const pseudo = getComputedStyle(element, "::before");
+        context.font = `${pseudo.fontStyle} ${pseudo.fontWeight} ${pseudo.fontSize} ${pseudo.fontFamily}`;
+        const width = context.measureText(before).width;
+        fillText(context, before, first.left - origin.left - width, first.top - origin.top + first.height / 2, pseudo);
+    }
+    if (after && last) {
+        fillText(context, after, last.right - origin.left, last.top - origin.top + last.height / 2, getComputedStyle(element, "::after"));
+    }
+    context.restore();
 }
 
 // Mengekspor tampilan peta saat ini menjadi gambar PNG, misalnya untuk laporan.
 // Yang ikut: peta dasar, gambar overlay, semua lapisan GeoJSON (SVG dan canvas), label fitur,
-// marker (pin bawaan, ikon gambar, atau SVG di dalam elemen sendiri) beserta labelnya, hasil
-// alat ukur, garis skala, dan teks atribusi. Yang tidak ikut: popup, tombol, dan elemen HTML
-// lain buatan sendiri (misalnya gelembung mapcluster.js).
+// marker, gelembung mapcluster.js, penanda lokasi, hasil alat ukur, garis skala, dan teks
+// atribusi. Label dan elemen HTML digambar dari CSS-nya: latar, garis tepi, sudut membulat,
+// padding, isi ::before/::after, dan text-shadow sebagai halo. Bayangan kotak (box-shadow),
+// gradien, dan transform berputar tidak ikut. Popup dan tombol kontrol juga tidak ikut.
 // Tile peta dasar dimuat ulang dengan CORS; tile dari server yang tidak mengizinkan CORS
 // dilewati (OpenStreetMap dan Esri mengizinkan).
 // responseFunction(blob, info) dipanggil sekali: blob PNG (atau null kalau gagal) dan
@@ -588,41 +718,21 @@ async function renderImage(map, options) {
         if (image) context.drawImage(image, 0, 0, width, height);
     }
 
-    // Label fitur yang sedang tampil.
-    root.querySelectorAll(".crootjs-map-label").forEach(label => {
-        if (label.style.visibility === "hidden") return;
-        drawText(context, label, label.getBoundingClientRect(), origin);
-    });
-
-    // Isi overlay: hasil alat ukur dan marker.
-    for (const element of root.querySelectorAll(".crootjs-map-overlay > svg.crootjs-measure")) {
-        const image = await svgImage(element, width, height);
-        if (image) context.drawImage(image, 0, 0, width, height);
+    // Label fitur yang sedang tampil, lalu isi overlay (hasil alat ukur, marker, gelembung
+    // mapcluster.js, penanda lokasi) - semuanya digambar dari CSS hasil hitungan browser.
+    const state = { missing: 0 };
+    for (const label of root.querySelectorAll(".crootjs-map-label")) {
+        await drawElement(context, label, origin, state);
     }
-    for (const marker of root.querySelectorAll(".crootjs-marker")) {
-        const graphic = marker.querySelector(":scope > svg, :scope > img, :scope > * svg, :scope > * img");
-        if (graphic) {
-            const rect = graphic.getBoundingClientRect();
-            const image = graphic.tagName.toLowerCase() === "svg"
-                ? await svgImage(graphic, rect.width, rect.height, getComputedStyle(graphic).color)
-                : await loadImage(graphic.src);
-            if (image) {
-                context.drawImage(image, rect.left - origin.left, rect.top - origin.top, rect.width, rect.height);
-            } else {
-                missing++;
-            }
-        } else if (marker.textContent.trim()) {
-            const rect = marker.getBoundingClientRect();
-            const background = getComputedStyle(marker.firstElementChild || marker).backgroundColor;
-            context.fillStyle = background;
-            context.fillRect(rect.left - origin.left, rect.top - origin.top, rect.width, rect.height);
-        }
-        marker.querySelectorAll(".crootjs-marker-label").forEach(label => drawText(context, label, label.getBoundingClientRect(), origin));
-        if (!graphic) {
-            const text = marker.firstElementChild;
-            if (text && !text.classList.contains("crootjs-marker-label")) drawText(context, text, text.getBoundingClientRect(), origin);
+    for (const element of root.querySelectorAll(".crootjs-map-overlay > *")) {
+        if (element.matches("svg.crootjs-measure")) {
+            const image = await svgImage(element, width, height);
+            if (image) context.drawImage(image, 0, 0, width, height);
+        } else {
+            await drawElement(context, element, origin, state);
         }
     }
+    missing += state.missing;
 
     // Garis skala.
     const bar = root.querySelector(".crootjs-map-scale");

@@ -50,7 +50,11 @@ function injectStyles() {
 .crootjs-cluster-point:focus-visible { outline: 2px solid #111827; outline-offset: 2px; }
 .crootjs-cluster-list > div + div { margin-top: 4px; padding-top: 4px; border-top: 1px solid #e5e7eb; }
 `;
-    document.head.appendChild(style);
+    // Di awal <head> (sesudah style CrootJS lain), bukan di akhir: CSS halaman yang ditautkan
+    // sesudahnya menang tanpa !important, jadi tampilan bawaan ini mudah ditimpa.
+    const previous = [...document.head.querySelectorAll('style[id^="crootjs-"]')].pop();
+    if (previous) previous.after(style);
+    else document.head.prepend(style);
 }
 
 function mapOf(id) {
