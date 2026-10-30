@@ -27,6 +27,14 @@ const STYLE_PROPERTIES = {
     lineJoin: "stroke-linejoin"
 };
 const LABEL_CELL = 64;          // piksel; ukuran sel grid pencari tabrakan label
+const HIT_TOLERANCE = 10;       // piksel; jarak klik dari garis di canvas yang masih dihitung kena
+
+// Gaya bawaan bentuk yang digambar di canvas - sama dengan kelas CSS bentuk SVG di bawah.
+const CANVAS_DEFAULTS = {
+    polygon: { stroke: "#2563eb", strokeWidth: 2, strokeOpacity: 1, fill: "#2563eb", fillOpacity: 0.25, lineCap: "butt", lineJoin: "round" },
+    line: { stroke: "#2563eb", strokeWidth: 3, strokeOpacity: 1, lineCap: "round", lineJoin: "round" },
+    point: { stroke: "#fff", strokeWidth: 2, strokeOpacity: 1, fill: "#2563eb", fillOpacity: 1, lineCap: "butt", lineJoin: "miter" }
+};
 
 const maps = new Map();        // id elemen -> state peta
 const records = new WeakMap(); // elemen SVG -> { feature, layer, shape } pemiliknya
@@ -69,7 +77,30 @@ function injectStyles() {
 /* z-index di sini membuat tiap lapisan punya urutan tumpuk sendiri: z-index gambar tile
    hanya berlaku di antara sesama tile, tidak sampai menutupi lapisan data di atasnya. */
 .crootjs-map-tiles { z-index: 0; }
+/* Gambar bergeoreferensi (image overlay): di atas tile, di bawah data. */
+.crootjs-map-underlay {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+    pointer-events: none;
+}
+.crootjs-map-underlay > * { position: absolute; left: 0; top: 0; transform-origin: 0 0; max-width: none; max-height: none; }
+/* Lapisan ber-renderer canvas: di bawah lapisan SVG. Klik dan hover-nya dihitung sendiri. */
+.crootjs-map canvas.crootjs-map-canvas {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+    pointer-events: none;
+}
 .crootjs-map svg.crootjs-map-vectors { z-index: 1; }
+.crootjs-map-pointer { cursor: pointer; }
+.crootjs-map-capturing, .crootjs-map-capturing .crootjs-map-vectors path, .crootjs-map-capturing .crootjs-map-vectors circle { cursor: crosshair; }
 /* Label fitur: z-index sama dengan data, tapi letaknya sesudah SVG jadi tampil di atasnya. */
 .crootjs-map-labels {
     position: absolute;
@@ -319,6 +350,7 @@ function render(state) {
     renderTiles(state);
     renderLayerVisibility(state);
     renderVectors(state);
+    renderCanvas(state);
     renderLabels(state);
     renderPopup(state);
     if (state.zoomIn) {
@@ -432,6 +464,15 @@ function removeTile(state, key) {
     state.tiles.delete(key);
 }
 
+// Mengubah rentang zoom yang diizinkan; nilai yang bukan angka membiarkan batas itu. Zoom
+// sekarang dipotong ke rentang baru.
+function applyZoomRange(state, minZoom, maxZoom) {
+    if (Number.isFinite(minZoom)) state.minZoom = minZoom;
+    if (Number.isFinite(maxZoom)) state.maxZoom = maxZoom;
+    if (state.minZoom > state.maxZoom) state.minZoom = state.maxZoom;
+    setView(state, NaN, NaN, state.zoom);
+}
+
 // Memasang (atau mengganti) peta dasar. Tile dari peta dasar lama dibiarkan sampai tile
 // baru selesai dimuat - kuncinya diberi nomor generasi, jadi renderTiles menganggapnya
 // tile "lama" seperti saat zoom berubah - supaya peta tidak berkedip kosong.
@@ -443,6 +484,8 @@ function configureTiles(state, tiles, options) {
     state.subdomains = [].concat(options.subdomains === undefined ? ["a", "b", "c"] : options.subdomains);
     if (typeof options.subdomains === "string") state.subdomains = options.subdomains.split("");
     state.errorTileURL = options.errorTiles || null;
+    // Berbeda dari opsi tile lain, minZoom/maxZoom hanya berubah kalau disebut.
+    applyZoomRange(state, options.minZoom, options.maxZoom);
     state.tileGeneration = (state.tileGeneration || 0) + 1;
     if (!state.tileURL) [...state.tiles.keys()].forEach(key => removeTile(state, key));
     state.baseAttribution = options.attribution || (useDefault ? OSM_ATTRIBUTION : null);
@@ -527,15 +570,64 @@ function shapesOf(geometry) {
     }
 }
 
+// Douglas-Peucker: titik yang menyimpang kurang dari `tolerance` dari garis lurus di antara
+// tetangganya dibuang. Koordinat dan tolerance dalam satuan proyeksi (0..1).
+function simplifyRing(points, tolerance) {
+    if (points.length < 3) return points;
+    const keep = new Uint8Array(points.length);
+    keep[0] = keep[points.length - 1] = 1;
+    const limit = tolerance * tolerance;
+    const stack = [[0, points.length - 1]];
+    while (stack.length) {
+        const [first, last] = stack.pop();
+        const [ax, ay] = points[first];
+        const dx = points[last][0] - ax;
+        const dy = points[last][1] - ay;
+        const length = dx * dx + dy * dy;
+        let farthest = 0;
+        let index = 0;
+        for (let i = first + 1; i < last; i++) {
+            let t = length ? ((points[i][0] - ax) * dx + (points[i][1] - ay) * dy) / length : 0;
+            t = clamp(t, 0, 1);
+            const ex = points[i][0] - ax - t * dx;
+            const ey = points[i][1] - ay - t * dy;
+            const distance = ex * ex + ey * ey;
+            if (distance > farthest) {
+                farthest = distance;
+                index = i;
+            }
+        }
+        if (farthest > limit) {
+            keep[index] = 1;
+            stack.push([first, index], [index, last]);
+        }
+    }
+    return points.filter((point, i) => keep[i]);
+}
+
+// Ring sebuah bentuk untuk digambar pada `zoom`. Dengan opsi simplify, ring disederhanakan
+// per level zoom bulat (dibulatkan ke atas, jadi tetap cukup halus sampai zoom berikutnya)
+// dan hasilnya disimpan.
+function ringsAt(layer, shape, zoom) {
+    if (!layer.simplify || shape.kind === "point") return shape.rings;
+    const level = Math.ceil(zoom);
+    shape.simplified = shape.simplified || {};
+    if (!shape.simplified[level]) {
+        const tolerance = layer.simplify / worldSize(level);
+        shape.simplified[level] = shape.rings.map(ring => simplifyRing(ring, tolerance));
+    }
+    return shape.simplified[level];
+}
+
 // Menulis koordinat sebuah bentuk dalam piksel relatif terhadap titik acuan `built`.
-function drawShape(shape, built, size) {
+function drawShape(layer, shape, built, size) {
     const local = value => Math.round(value * size * 10) / 10;
     if (shape.kind === "point") {
         shape.element.setAttribute("cx", local(shape.point[0] - built.x));
         shape.element.setAttribute("cy", local(shape.point[1] - built.y));
         return;
     }
-    const d = shape.rings
+    const d = ringsAt(layer, shape, built.zoom)
         .filter(ring => ring.length > 0)
         .map(ring => "M" + ring.map(point => local(point[0] - built.x) + " " + local(point[1] - built.y)).join("L") + (shape.kind === "polygon" ? "Z" : ""))
         .join("");
@@ -557,7 +649,9 @@ function renderVectors(state) {
         || Math.abs(state.x - built.x) * world > REBUILD_DISTANCE
         || Math.abs(state.y - built.y) * world > REBUILD_DISTANCE) {
         built = state.built = { x: state.x, y: state.y, zoom: state.zoom, scale: 0 };
-        state.layers.forEach(layer => layer.shapes.forEach(shape => drawShape(shape, built, world)));
+        state.layers.forEach(layer => {
+            if (!layer.canvas) layer.shapes.forEach(shape => drawShape(layer, shape, built, world));
+        });
     }
 
     const scale = Math.pow(2, state.zoom - built.zoom);
@@ -570,9 +664,138 @@ function renderVectors(state) {
         // Lingkaran ikut diskalakan bersama grupnya; jari-jarinya dibagi skala supaya
         // ukurannya di layar tetap.
         state.layers.forEach(layer => layer.shapes.forEach(shape => {
-            if (shape.kind === "point") shape.element.setAttribute("r", shape.radius / scale);
+            if (shape.kind === "point" && shape.element) shape.element.setAttribute("r", shape.radius / scale);
         }));
     }
+}
+
+function canvasDash(value) {
+    if (value === undefined || value === null || value === "none") return [];
+    const parts = Array.isArray(value) ? value : String(value).split(/[\s,]+/);
+    return parts.map(Number).filter(Number.isFinite);
+}
+
+// Lapisan ber-renderer canvas digambar ulang seluruhnya di setiap frame, langsung dalam
+// piksel layar. Ribuan garis tetap ringan karena tidak ada elemen DOM per bentuk.
+function renderCanvas(state) {
+    const canvas = state.canvas;
+    if (!canvas) return;
+    const ratio = window.devicePixelRatio || 1;
+    const width = Math.round(state.width * ratio);
+    const height = Math.round(state.height * ratio);
+    if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+    }
+    const context = canvas.getContext("2d");
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    context.clearRect(0, 0, width, height);
+    context.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+    const world = worldSize(state.zoom);
+    const left = state.x - state.width / 2 / world;   // tepi tampilan, dalam satuan proyeksi
+    const top = state.y - state.height / 2 / world;
+    const right = state.x + state.width / 2 / world;
+    const bottom = state.y + state.height / 2 / world;
+    const margin = 20 / world;
+    const sx = value => (value - left) * world;
+    const sy = value => (value - top) * world;
+
+    state.layers.forEach(layer => {
+        if (!layer.canvas || !layer.shown) return;
+        // Titik digambar paling atas dalam satu lapisan, sama seperti di SVG.
+        ["polygon", "line", "point"].forEach(kind => layer.shapes.forEach(shape => {
+            if (shape.kind !== kind) return;
+            const box = shape.bbox;
+            if (box[2] < left - margin || box[0] > right + margin || box[3] < top - margin || box[1] > bottom + margin) return;
+            const style = Object.assign({}, CANVAS_DEFAULTS[kind], shape.style);
+            context.beginPath();
+            if (kind === "point") {
+                context.arc(sx(shape.point[0]), sy(shape.point[1]), shape.radius, 0, 2 * Math.PI);
+            } else {
+                ringsAt(layer, shape, state.zoom).forEach(ring => {
+                    ring.forEach((point, index) => {
+                        if (index === 0) context.moveTo(sx(point[0]), sy(point[1]));
+                        else context.lineTo(sx(point[0]), sy(point[1]));
+                    });
+                    if (kind === "polygon") context.closePath();
+                });
+            }
+            if (kind !== "line" && style.fill !== "none") {
+                context.globalAlpha = Number(style.fillOpacity);
+                context.fillStyle = style.fill;
+                context.fill("evenodd");
+            }
+            if (style.stroke !== "none" && Number(style.strokeWidth) > 0) {
+                context.globalAlpha = Number(style.strokeOpacity);
+                context.strokeStyle = style.stroke;
+                context.lineWidth = Number(style.strokeWidth);
+                context.lineCap = style.lineCap;
+                context.lineJoin = style.lineJoin;
+                context.setLineDash(canvasDash(style.strokeDasharray));
+                context.stroke();
+            }
+            context.globalAlpha = 1;
+        }));
+    });
+}
+
+function segmentDistance(point, from, to) {
+    const dx = to[0] - from[0];
+    const dy = to[1] - from[1];
+    const length = dx * dx + dy * dy;
+    const t = length ? clamp(((point[0] - from[0]) * dx + (point[1] - from[1]) * dy) / length, 0, 1) : 0;
+    return Math.hypot(point[0] - from[0] - t * dx, point[1] - from[1] - t * dy);
+}
+
+// Bentuk canvas yang berada di bawah titik layar `point`: lapisan teratas dulu, lalu bentuk
+// yang digambar belakangan. Hasilnya { feature, layer, shape } seperti records, atau undefined.
+function canvasHit(state, point) {
+    if (!state.canvas) return undefined;
+    const world = worldSize(state.zoom);
+    const at = [state.x + (point[0] - state.width / 2) / world, state.y + (point[1] - state.height / 2) / world];
+    const toScreen = p => [(p[0] - at[0]) * world, (p[1] - at[1]) * world]; // relatif terhadap `point`
+    for (let l = state.layers.length - 1; l >= 0; l--) {
+        const layer = state.layers[l];
+        if (!layer.canvas || !layer.shown) continue;
+        for (const kind of ["point", "line", "polygon"]) {
+            for (let s = layer.shapes.length - 1; s >= 0; s--) {
+                const shape = layer.shapes[s];
+                if (shape.kind !== kind) continue;
+                const reach = (HIT_TOLERANCE + (shape.radius || 0)) / world;
+                const box = shape.bbox;
+                if (at[0] < box[0] - reach || at[0] > box[2] + reach || at[1] < box[1] - reach || at[1] > box[3] + reach) continue;
+                const width = Number((shape.style || {}).strokeWidth) || CANVAS_DEFAULTS[kind].strokeWidth;
+                let hit = false;
+                if (kind === "point") {
+                    const p = toScreen(shape.point);
+                    hit = Math.hypot(p[0], p[1]) <= shape.radius + width / 2 + 2;
+                } else {
+                    const rings = ringsAt(layer, shape, state.zoom).map(ring => ring.map(toScreen));
+                    const limit = kind === "line" ? Math.max(HIT_TOLERANCE, width / 2) : width / 2 + 3;
+                    hit = rings.some(ring => ring.some((p, i) => i > 0 && segmentDistance([0, 0], ring[i - 1], p) <= limit));
+                    if (!hit && kind === "polygon") {
+                        // Ganjil-genap: titik di dalam lubang polygon tidak dihitung kena.
+                        let inside = false;
+                        rings.forEach(ring => {
+                            for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+                                if ((ring[i][1] > 0) !== (ring[j][1] > 0)
+                                    && 0 < (ring[j][0] - ring[i][0]) * (0 - ring[i][1]) / (ring[j][1] - ring[i][1]) + ring[i][0]) inside = !inside;
+                            }
+                        });
+                        hit = inside;
+                    }
+                }
+                if (hit) return { feature: shape.feature, layer, shape };
+            }
+        }
+    }
+    return undefined;
+}
+
+// Fitur di bawah titik layar `point`: bentuk SVG yang jadi target event, atau bentuk canvas.
+function featureAt(state, target, point) {
+    return records.get(target) || canvasHit(state, point);
 }
 
 function inZoomRange(zoom, range) {
@@ -599,6 +822,16 @@ function renderLayerVisibility(state) {
 function applyStyle(layer, shape, hovered) {
     const base = (typeof layer.style === "function" ? layer.style(shape.feature) : layer.style) || {};
     const style = hovered ? Object.assign({}, base, layer.hoverStyle) : base;
+    if (layer.canvas) {
+        // Bentuk canvas tidak punya elemen: gayanya disimpan dan dipakai renderCanvas.
+        shape.style = {};
+        Object.keys(STYLE_PROPERTIES).forEach(key => {
+            if (style[key] !== undefined && style[key] !== null) shape.style[key] = style[key];
+        });
+        shape.radius = Number.isFinite(style.radius) ? style.radius : 7;
+        requestRender(layer.state);
+        return;
+    }
     const element = shape.element;
     element.removeAttribute("style");
     Object.keys(STYLE_PROPERTIES).forEach(key => {
@@ -892,6 +1125,18 @@ function snapZoom(state, point, direction = 0) {
 }
 
 function handleTap(state, target, point) {
+    const world = worldSize(state.zoom);
+    const tapped = [
+        state.x + (point[0] - state.width / 2) / world,
+        state.y + (point[1] - state.height / 2) / world
+    ];
+    // Modul tambahan yang sedang "meminjam" klik peta (misalnya alat ukur): klik tidak membuka
+    // popup dan tidak diteruskan ke onMapClick.
+    if (state.clickCapture) {
+        state.clickCapture(unproject(tapped), "click");
+        return;
+    }
+
     // Elemen modul tambahan yang mendaftar lewat onTap() menangani tap-nya sendiri: peta tidak
     // menganggapnya klik peta, dan popup yang sedang terbuka tidak ditutup.
     for (let element = target; element && element !== state.root; element = element.parentElement) {
@@ -902,12 +1147,7 @@ function handleTap(state, target, point) {
         }
     }
 
-    const record = records.get(target);
-    const world = worldSize(state.zoom);
-    const tapped = [
-        state.x + (point[0] - state.width / 2) / world,
-        state.y + (point[1] - state.height / 2) / world
-    ];
+    const record = featureAt(state, target, point);
 
     if (record && record.layer.popup !== false) {
         const content = typeof record.layer.popup === "function" ? record.layer.popup(record.feature) : defaultPopupContent(record.feature);
@@ -978,13 +1218,16 @@ function bindGestures(state) {
             // Kursor yang melayang (tanpa tombol ditekan): hover dan tooltip. Hanya mouse; di
             // layar sentuh tidak ada "melayang".
             if (pointers.size === 0 && event.pointerType === "mouse") {
-                const record = records.get(event.target);
+                const point = pointOf(event);
+                const record = state.clickCapture ? undefined : featureAt(state, event.target, point);
+                // Fitur canvas tidak punya elemen untuk diberi cursor: pointer lewat CSS.
+                root.classList.toggle("crootjs-map-pointer", Boolean(record && record.layer.canvas));
                 if (record && (record.layer.hoverStyle || record.layer.tooltip)) {
                     setHover(state, record.layer, record.feature);
                 } else {
                     clearHover(state);
                 }
-                moveTooltip(state, pointOf(event));
+                moveTooltip(state, point);
             }
             return;
         }
@@ -993,6 +1236,7 @@ function bindGestures(state) {
             if (Math.hypot(point[0] - start[0], point[1] - start[1]) < DRAG_THRESHOLD) return;
             moved = true;
             clearHover(state);
+            root.classList.remove("crootjs-map-pointer");
             // Pointer baru ditangkap setelah jelas ini geseran: kalau ditangkap sejak
             // pointerdown, target pointerup selalu peta dan fitur yang diklik tidak diketahui.
             capture(event.pointerId);
@@ -1025,6 +1269,10 @@ function bindGestures(state) {
     root.addEventListener("pointerleave", () => clearHover(state));
 
     root.addEventListener("dblclick", event => {
+        if (state.clickCapture) {
+            state.clickCapture(toPosition(state, pointOf(event)), "dblclick");
+            return;
+        }
         animateZoom(state, Math.round(state.zoom) + 1, pointOf(event));
     });
 
@@ -1166,17 +1414,22 @@ export function createMap(id, options = {}) {
     svg.setAttribute("class", "crootjs-map-vectors");
     const group = document.createElementNS(SVG_NS, "g");
     svg.appendChild(group);
+    const underlay = document.createElement("div");
+    underlay.className = "crootjs-map-underlay";
     const labelPane = document.createElement("div");
     labelPane.className = "crootjs-map-labels";
     const overlay = document.createElement("div");
     overlay.className = "crootjs-map-overlay";
-    root.append(tilePane, svg, labelPane, overlay);
+    root.append(tilePane, underlay, svg, labelPane, overlay);
 
     const state = {
         container,
         root,
         tilePane,
         group,
+        svg,
+        canvas: null,
+        clickCapture: null,
         labelPane,
         overlay,
         corners: {},
@@ -1231,7 +1484,11 @@ export function createMap(id, options = {}) {
     // map.js: halaman biasanya memuat map.min.js, sedangkan import "./map.js" dari modul lain
     // memuat salinan kedua dengan daftar peta yang terpisah - dan petanya tidak akan ketemu.
     container.crootjsMap = {
+        root,
         overlay,
+        // Tempat gambar bergeoreferensi: di atas peta dasar, di bawah data. Isinya diposisikan
+        // sendiri oleh modul tambahan (lihat addImageOverlay di maptools.js).
+        underlay,
         toPoint: position => toPoint(state, position),
         toPosition: point => toPosition(state, point),
         getView: () => currentView(state),
@@ -1257,6 +1514,33 @@ export function createMap(id, options = {}) {
             render(state);
         },
         getLayers: () => listLayers(state),
+        setZoomRange: (minZoom, maxZoom) => {
+            stopAnimation(state);
+            applyZoomRange(state, minZoom, maxZoom);
+            render(state);
+        },
+        // runFunction(position, feature) setiap kali peta diklik, sama seperti onMapClick.
+        onClick: runFunction => {
+            state.clickHandlers.push(runFunction);
+            return function stop() {
+                const index = state.clickHandlers.indexOf(runFunction);
+                if (index !== -1) state.clickHandlers.splice(index, 1);
+            };
+        },
+        // Meminjam klik peta: selama aktif, klik dan klik ganda diteruskan ke
+        // runFunction(position, "click" | "dblclick") saja - tanpa popup, tanpa zoom klik
+        // ganda, tanpa onMapClick, tanpa hover. Mengembalikan release(). Hanya satu peminjam.
+        captureClick: runFunction => {
+            state.clickCapture = runFunction;
+            hidePopup(state);
+            clearHover(state);
+            root.classList.add("crootjs-map-capturing");
+            return function release() {
+                if (state.clickCapture !== runFunction) return;
+                state.clickCapture = null;
+                root.classList.remove("crootjs-map-capturing");
+            };
+        },
         setLayerVisible: (name, visible) => setLayerVisible(state, name, visible)
     };
 
@@ -1412,6 +1696,11 @@ export function fitMap(id, geojson, padding = 24) {
 //   order  urutan tumpuk: makin besar makin di atas. Default 0; yang sama urut ditambahkan.
 //   visible  false = ditambahkan dalam keadaan tersembunyi
 //   attribution  sumber data lapisan ini, ditambahkan ke atribusi peta selama lapisannya ada
+//   renderer  "canvas" = digambar di satu canvas, bukan satu elemen SVG per bentuk: jauh
+//          lebih ringan untuk ribuan garis, terutama di ponsel. Lapisan canvas selalu berada
+//          di bawah lapisan SVG. Gaya, popup, hover, tooltip, dan label tetap berlaku.
+//   simplify  toleransi penyederhanaan geometri per level zoom, dalam piksel (misalnya 1):
+//          titik yang menyimpang kurang dari itu dibuang. Default 0 = tidak disederhanakan.
 // Mengembalikan function remove() untuk menghapus lapisan ini dari peta. Function itu juga
 // punya remove.show(), remove.hide(), remove.setStyle(style), dan remove.setOrder(order),
 // untuk lapisan yang tidak diberi nama.
@@ -1452,13 +1741,35 @@ export function addGeoJSON(id, geojson, options = {}) {
         },
         labelOverlap: labelOptions.overlap === true,
         order: Number.isFinite(options.order) ? options.order : 0,
+        canvas: options.renderer === "canvas",
+        simplify: Number.isFinite(options.simplify) && options.simplify > 0 ? options.simplify : 0,
         sequence: state.layerCount++,
         attribution: options.attribution || null
     };
     const markers = [];
 
+    if (layer.canvas && !state.canvas) {
+        state.canvas = document.createElement("canvas");
+        state.canvas.className = "crootjs-map-canvas";
+        state.svg.before(state.canvas);
+    }
+
     collection.features.forEach(feature => {
         shapesOf(feature.geometry).forEach(shape => {
+            if (layer.canvas) {
+                // Kotak pembatas (satuan proyeksi) untuk melewati bentuk di luar layar dengan cepat.
+                const box = shape.bbox = [Infinity, Infinity, -Infinity, -Infinity];
+                (shape.kind === "point" ? [[shape.point]] : shape.rings).forEach(ring => ring.forEach(point => {
+                    box[0] = Math.min(box[0], point[0]);
+                    box[1] = Math.min(box[1], point[1]);
+                    box[2] = Math.max(box[2], point[0]);
+                    box[3] = Math.max(box[3], point[1]);
+                }));
+                shape.feature = feature;
+                applyStyle(layer, shape, false);
+                layer.shapes.push(shape);
+                return;
+            }
             const element = document.createElementNS(SVG_NS, shape.kind === "point" ? "circle" : "path");
             element.setAttribute("class", "crootjs-map-" + shape.kind);
             shape.element = element;
@@ -1541,6 +1852,7 @@ function detachLayer(state, layer) {
     if (state.hover && state.hover.layer === layer) clearHover(state);
     if (state.popup && state.popup.layer === layer) hidePopup(state);
     if (layer.attribution) renderAttribution(state);
+    if (layer.canvas) requestRender(state);
 }
 
 function updateLayer(state, layer, change) {
@@ -1613,11 +1925,24 @@ export function getLayers(id) {
 // Mengganti peta dasar tanpa membuat ulang peta: lapisan, marker, dan popup tetap.
 // tiles: sama seperti opsi tiles di createMap (false = tanpa peta dasar).
 // options: labels, maxNativeZoom, subdomains, errorTiles, attribution - sama seperti di
-// createMap, dan semuanya kembali ke bawaan kalau tidak disebut.
+// createMap, dan semuanya kembali ke bawaan kalau tidak disebut. minZoom/maxZoom juga
+// boleh disebut (misalnya peta dasar yang tidak boleh di-zoom lewat level tertentu); yang
+// tidak disebut tetap seperti sebelumnya.
 export function setTiles(id, tiles, options = {}) {
     const state = getMap(id);
     if (!state) return;
     configureTiles(state, tiles, options);
+    render(state);
+}
+
+// Mengubah rentang zoom yang diizinkan tanpa membuat ulang peta. minZoom atau maxZoom yang
+// tidak diisi (undefined/null) dibiarkan. Kalau zoom sekarang di luar rentang baru, peta
+// langsung di-zoom ke batas terdekat; tombol +/- ikut menyesuaikan.
+export function setZoomRange(id, minZoom, maxZoom) {
+    const state = getMap(id);
+    if (!state) return;
+    stopAnimation(state);
+    applyZoomRange(state, minZoom, maxZoom);
     render(state);
 }
 

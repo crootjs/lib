@@ -1,5 +1,5 @@
-// Modul tambahan untuk map.js: skala peta, "lokasi saya", live tracking, serta panel pilihan
-// peta dasar dan lapisan.
+// Modul tambahan untuk map.js: skala peta, "lokasi saya", live tracking, panel pilihan peta
+// dasar dan lapisan, tampilan koordinat, dan layar penuh.
 // Sengaja tidak mengimpor map.js - petanya dijangkau lewat antarmuka yang dititipkan
 // createMap() di elemennya (element.crootjsMap), supaya map.js tidak termuat dua kali.
 
@@ -14,6 +14,15 @@ const TRACK_ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" 
 
 const LAYERS_ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true">'
     + '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg>';
+
+const FULLSCREEN_ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">'
+    + '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>';
+
+const EXIT_FULLSCREEN_ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">'
+    + '<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>';
+
+const COPY_ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true">'
+    + '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>';
 
 let panelCount = 0; // untuk nama grup radio yang unik per halaman
 
@@ -107,6 +116,50 @@ function injectStyles() {
     cursor: pointer;
 }
 .crootjs-map-panel input { margin: 0; }
+.crootjs-map-coordinates {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 4px 2px 8px;
+    border-radius: 4px;
+    background-color: rgba(255, 255, 255, 0.85);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    color: #1f2937;
+    font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    white-space: pre;
+    user-select: text;
+    -webkit-user-select: text;
+}
+.crootjs-map button.crootjs-map-copy {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    min-width: 0;
+    height: 22px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 3px;
+    background: none;
+    color: #4b5563;
+    font: 11px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    cursor: pointer;
+}
+.crootjs-map button.crootjs-map-copy:hover { background-color: #e5e7eb; color: #111827; }
+.crootjs-map button.crootjs-map-copy[hidden] { display: none; }
+/* Layar penuh tiruan, untuk browser tanpa Fullscreen API (Safari di iPhone). */
+.crootjs-map-fullscreen {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 2147483000 !important;
+    width: auto !important;
+    height: auto !important;
+    max-width: none !important;
+    max-height: none !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+}
 .crootjs-map-panel-group + .crootjs-map-panel-group { margin-top: 6px; padding-top: 6px; border-top: 1px solid #e5e7eb; }
 `;
     document.head.appendChild(style);
@@ -413,8 +466,8 @@ function choiceRow(type, name, text, checked, onChange) {
 
 // Menambahkan pilihan peta dasar (radio) ke peta. Memilih salah satu memanggil setTiles()
 // dari map.js - lapisan, marker, dan popup tetap di tempatnya.
-// basemaps: array { name, tiles, labels, maxNativeZoom, subdomains, errorTiles, attribution } -
-// semua kecuali name sama seperti opsi setTiles().
+// basemaps: array { name, tiles, labels, maxNativeZoom, subdomains, errorTiles, attribution,
+// minZoom, maxZoom } - semua kecuali name sama seperti opsi setTiles().
 // options (semua opsional):
 //   selected   indeks atau name peta dasar yang langsung dipasang. Default 0 (yang pertama).
 //   title      judul panel. Default "Peta dasar".
@@ -463,4 +516,155 @@ export function addLayerControl(id, layers, options = {}) {
         return row.label;
     });
     return addPanel(map, options.title === undefined ? "Lapisan" : options.title, rows, options);
+}
+
+function formatPosition(position, precision) {
+    // Urutan "lat, lng": urutan yang diterima kotak pencarian Google Maps dan kebanyakan GPS.
+    return position[1].toFixed(precision) + ", " + position[0].toFixed(precision);
+}
+
+// Menampilkan koordinat di bawah kursor; klik (atau tap) di peta menahan koordinat titik itu
+// dan memunculkan tombol salin. Di layar sentuh, yang tampil hanya koordinat yang di-tap.
+// options (semua opsional):
+//   format     function (position) => teks yang ditampilkan dan disalin. Inilah kait untuk
+//              sistem koordinat lokal, misalnya grid CAD lewat createAffineTransform dari
+//              geomeasure.js. Default: "lat, lng".
+//   precision  angka di belakang koma untuk format bawaan. Default 6 (sekitar 10 cm).
+//   corner     pojok peta. Default "bottom-left".
+//   onClick    function (position, text) yang dipanggil saat koordinat ditahan dengan klik
+// Mengembalikan function remove().
+export function addCoordinateControl(id, options = {}) {
+    const map = mapOf(id);
+    if (!map) return () => {};
+    injectStyles();
+
+    const precision = Number.isInteger(options.precision) ? options.precision : 6;
+    const format = typeof options.format === "function" ? options.format : position => formatPosition(position, precision);
+    const box = document.createElement("div");
+    box.className = "crootjs-map-coordinates";
+    const text = document.createElement("span");
+    text.textContent = "—";
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.className = "crootjs-map-copy";
+    copy.title = "Salin koordinat";
+    copy.setAttribute("aria-label", "Salin koordinat");
+    copy.innerHTML = COPY_ICON;
+    copy.hidden = true;
+    box.append(text, copy);
+
+    let pinned = null; // teks koordinat yang ditahan klik terakhir
+    const show = value => {
+        text.textContent = value === null || value === undefined ? "—" : String(value);
+    };
+    const move = event => {
+        if (event.pointerType !== "mouse") return;
+        // Di atas kontrol (termasuk kotak ini sendiri) yang tampil koordinat yang ditahan,
+        // supaya tombol salin bisa dicapai tanpa mengubah isinya.
+        if (event.target.closest && event.target.closest(".crootjs-map-corner")) {
+            show(pinned);
+            return;
+        }
+        const rect = map.root.getBoundingClientRect();
+        show(format(map.toPosition([event.clientX - rect.left, event.clientY - rect.top])));
+    };
+    const leave = () => show(pinned);
+    map.root.addEventListener("pointermove", move);
+    map.root.addEventListener("pointerleave", leave);
+    const stopClick = map.onClick(position => {
+        pinned = format(position);
+        show(pinned);
+        copy.hidden = false;
+        if (typeof options.onClick === "function") options.onClick(position, pinned);
+    });
+
+    copy.addEventListener("click", () => {
+        if (pinned === null) return;
+        const done = () => {
+            copy.textContent = "✓";
+            setTimeout(() => { copy.innerHTML = COPY_ICON; }, 1200);
+        };
+        // Clipboard API hanya ada di HTTPS/localhost; di luar itu teksnya diblok supaya bisa
+        // disalin manual dengan Ctrl+C.
+        const select = () => {
+            show(pinned);
+            const range = document.createRange();
+            range.selectNodeContents(text);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+        };
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(String(pinned)).then(done, select);
+        } else {
+            select();
+        }
+    });
+    const removeControl = map.addControl(box, options.corner || "bottom-left");
+
+    return function remove() {
+        map.root.removeEventListener("pointermove", move);
+        map.root.removeEventListener("pointerleave", leave);
+        stopClick();
+        removeControl();
+    };
+}
+
+// Menambahkan tombol layar penuh: peta memenuhi seluruh layar, klik lagi (atau Esc) untuk
+// kembali. Browser tanpa Fullscreen API (Safari di iPhone) mendapat tiruannya: peta
+// memenuhi jendela browser.
+// corner: "top-left" (bawaan), "top-right", "bottom-left", atau "bottom-right".
+// Mengembalikan function remove() yang juga keluar dari layar penuh.
+export function addFullscreenButton(id, corner = "top-left") {
+    const map = mapOf(id);
+    if (!map) return () => {};
+    injectStyles();
+
+    const container = map.root.parentElement;
+    const native = Boolean(document.fullscreenEnabled && container.requestFullscreen);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "crootjs-map-button";
+
+    const isFull = () => (native ? document.fullscreenElement === container : container.classList.contains("crootjs-map-fullscreen"));
+    const update = () => {
+        const full = isFull();
+        button.innerHTML = full ? EXIT_FULLSCREEN_ICON : FULLSCREEN_ICON;
+        button.title = full ? "Keluar dari layar penuh" : "Layar penuh";
+        button.setAttribute("aria-label", button.title);
+        button.setAttribute("aria-pressed", String(full));
+    };
+    const exit = () => {
+        if (!isFull()) return;
+        if (native) {
+            document.exitFullscreen();
+        } else {
+            container.classList.remove("crootjs-map-fullscreen");
+            update();
+        }
+    };
+    const escape = event => {
+        if (event.key === "Escape") exit();
+    };
+    button.addEventListener("click", () => {
+        if (isFull()) {
+            exit();
+        } else if (native) {
+            container.requestFullscreen().catch(error => console.log("error", error));
+        } else {
+            container.classList.add("crootjs-map-fullscreen");
+            update();
+        }
+    });
+    document.addEventListener("fullscreenchange", update);
+    if (!native) document.addEventListener("keydown", escape);
+    update();
+    const removeControl = map.addControl(button, corner);
+
+    return function remove() {
+        exit();
+        document.removeEventListener("fullscreenchange", update);
+        document.removeEventListener("keydown", escape);
+        removeControl();
+    };
 }

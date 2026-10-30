@@ -153,3 +153,68 @@ export function createCircle(center, radius, steps = 64) {
     ring.push(ring[0]);
     return { type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [ring] } };
 }
+
+// Menyelesaikan sistem 3x3 `matrix` * x = `vector` (eliminasi Gauss). null kalau singular.
+function solve3(matrix, vector) {
+    const m = matrix.map((row, i) => [...row, vector[i]]);
+    for (let column = 0; column < 3; column++) {
+        let pivot = column;
+        for (let row = column + 1; row < 3; row++) {
+            if (Math.abs(m[row][column]) > Math.abs(m[pivot][column])) pivot = row;
+        }
+        if (Math.abs(m[pivot][column]) < 1e-12) return null;
+        [m[column], m[pivot]] = [m[pivot], m[column]];
+        for (let row = 0; row < 3; row++) {
+            if (row === column) continue;
+            const factor = m[row][column] / m[column][column];
+            for (let k = column; k < 4; k++) m[row][k] -= factor * m[column][k];
+        }
+    }
+    return m.map((row, i) => row[3] / m[i][i]);
+}
+
+// Transformasi affine (geser, putar, skala, miring) dari pasangan titik kontrol: titik ke-i
+// di `from` berpasangan dengan titik ke-i di `to`, masing-masing [x, y]. Gunanya mengubah
+// koordinat sistem lokal (grid CAD, denah, piksel gambar) ke [lng, lat] dan sebaliknya.
+// Minimal 3 pasangan yang tidak segaris; lebih dari 3 dicocokkan dengan kuadrat terkecil.
+// Mengembalikan function transform([x, y]) -> [x, y] dengan:
+//   transform.inverse([x, y])  arah sebaliknya (dari `to` ke `from`)
+//   transform.error            selisih rata-rata (RMS) titik kontrol setelah ditransformasi,
+//                              dalam satuan `to` - besar berarti ada titik kontrol yang salah
+// atau null kalau titik kontrolnya kurang atau segaris.
+// Untuk area seukuran kawasan (beberapa km) affine dari lng/lat cukup teliti; untuk area
+// yang jauh lebih luas, pakai proyeksi sungguhan.
+export function createAffineTransform(from, to) {
+    if (!Array.isArray(from) || !Array.isArray(to) || from.length < 3 || from.length !== to.length) return null;
+    const normal = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    const sumX = [0, 0, 0];
+    const sumY = [0, 0, 0];
+    from.forEach((point, i) => {
+        const v = [point[0], point[1], 1];
+        for (let r = 0; r < 3; r++) {
+            for (let c = 0; c < 3; c++) normal[r][c] += v[r] * v[c];
+            sumX[r] += v[r] * to[i][0];
+            sumY[r] += v[r] * to[i][1];
+        }
+    });
+    const rowX = solve3(normal, sumX);
+    const rowY = solve3(normal, sumY);
+    if (!rowX || !rowY) return null;
+    const [a, b, c] = rowX;
+    const [d, e, f] = rowY;
+    const determinant = a * e - b * d;
+    if (Math.abs(determinant) < 1e-18) return null;
+
+    const transform = point => [a * point[0] + b * point[1] + c, d * point[0] + e * point[1] + f];
+    transform.inverse = point => {
+        const x = point[0] - c;
+        const y = point[1] - f;
+        return [(e * x - b * y) / determinant, (a * y - d * x) / determinant];
+    };
+    const squared = from.reduce((sum, point, i) => {
+        const result = transform(point);
+        return sum + (result[0] - to[i][0]) ** 2 + (result[1] - to[i][1]) ** 2;
+    }, 0);
+    transform.error = Math.sqrt(squared / from.length);
+    return transform;
+}
