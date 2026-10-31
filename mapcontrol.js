@@ -162,14 +162,15 @@ function injectStyles() {
     border-radius: 0 !important;
 }
 .crootjs-map-panel-group + .crootjs-map-panel-group { margin-top: 6px; padding-top: 6px; border-top: 1px solid #e5e7eb; }
-/* Pemilih peta dasar gaya kartu (addBasemapControl style: "cards"). Warna aksen bisa diganti
-   lewat --crootjs-map-accent. */
+/* Pemilih peta dasar gaya kartu (addBasemapControl style: "cards"). Warna aksen dan lebar kartu
+   bisa diganti lewat --crootjs-map-accent dan --crootjs-map-card-width. Lebar bawaan 92px cukup
+   untuk "OpenStreetMap" bercetak tebal tanpa terpotong. */
 .crootjs-map-cards { position: relative; }
 .crootjs-map-cards-grid {
     position: absolute;
     z-index: 2;
     display: grid;
-    grid-template-columns: repeat(var(--crootjs-map-cards-columns, 3), 76px);
+    grid-template-columns: repeat(var(--crootjs-map-cards-columns, 3), var(--crootjs-map-card-width, 92px));
     gap: 4px;
     max-height: 70vh;
     overflow-y: auto;
@@ -195,7 +196,7 @@ function injectStyles() {
     align-items: center;
     gap: 4px;
     box-sizing: border-box;
-    width: 76px;
+    width: var(--crootjs-map-card-width, 92px);
     min-width: 0;
     height: auto;
     margin: 0;
@@ -217,18 +218,19 @@ function injectStyles() {
 }
 .crootjs-map-card-thumb {
     display: block;
-    width: 64px;
-    height: 64px;
+    width: 72px;
+    height: 72px;
     border-radius: 6px;
     background-color: #e5e7eb;
     background-position: center;
     background-size: cover;
 }
-.crootjs-map-card-name { max-width: 100%; overflow-wrap: anywhere; }
+/* kata hanya dipotong kalau tidak muat satu baris penuh, dengan tanda hubung kalau browser bisa */
+.crootjs-map-card-name { max-width: 100%; overflow-wrap: break-word; hyphens: auto; }
 .crootjs-map-card[aria-pressed="true"] .crootjs-map-card-thumb { box-shadow: 0 0 0 2px var(--crootjs-map-accent, #2563eb); }
 .crootjs-map-card[aria-pressed="true"] .crootjs-map-card-name { color: var(--crootjs-map-accent, #2563eb); font-weight: 600; }
 @media (max-width: 640px) {
-    .crootjs-map-cards-wide { grid-template-columns: repeat(2, 76px); }
+    .crootjs-map-cards-wide { grid-template-columns: repeat(2, var(--crootjs-map-card-width, 92px)); }
 }
 @media (prefers-color-scheme: dark) {
     .crootjs-map-cards-grid,
