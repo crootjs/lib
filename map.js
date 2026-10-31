@@ -11,6 +11,7 @@ const DEFAULT_TILES = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const OSM_ATTRIBUTION = Symbol("osm"); // penanda atribusi bawaan untuk DEFAULT_TILES
 const SVG_NS = "http://www.w3.org/2000/svg";
 const DRAG_THRESHOLD = 4;       // piksel gerakan sebelum sebuah tekanan dianggap geser, bukan klik
+const LONG_PRESS_MS = 500;      // lama jari ditahan diam sebelum dianggap "klik kanan" di layar sentuh
 const REBUILD_DISTANCE = 4096;  // piksel geser sebelum path SVG dihitung ulang
 const SINGLE_POINT_ZOOM = 17;   // zoom fitMap untuk data yang hanya berupa satu titik
 const ZOOM_DURATION = 200;      // ms
@@ -57,6 +58,7 @@ function injectStyles() {
     touch-action: none;
     user-select: none;
     -webkit-user-select: none;
+    -webkit-touch-callout: none;
     -webkit-tap-highlight-color: transparent;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-size: 13px;
@@ -1171,11 +1173,31 @@ function handleTap(state, target, point) {
     state.clickHandlers.forEach(runFunction => runFunction(position, record ? record.feature : null));
 }
 
+// Klik kanan, tekan-lama, atau tombol Menu di keyboard: pendengar onContextMenu menerima
+// (position, feature, detail). detail.point = titik di dalam peta (piksel), detail.keyboard =
+// true kalau dibuka dari keyboard (menu sebaiknya langsung memfokus item pertamanya).
+function openContextMenu(state, target, point, keyboard) {
+    clearHover(state);
+    const record = keyboard ? null : featureAt(state, target, point);
+    const position = toPosition(state, point);
+    const detail = { point: point.slice(), keyboard };
+    state.contextHandlers.slice().forEach(runFunction => runFunction(position, record ? record.feature : null, detail));
+}
+
 function bindGestures(state) {
     const root = state.root;
     const pointers = new Map(); // pointerId -> titik terakhirnya di dalam peta
     let start = null;
     let moved = false;
+    let pressTimer = 0;    // tekan-lama di layar sentuh yang sedang ditunggu
+    let menuOpenedAt = -Infinity; // kapan menu konteks terakhir dibuka oleh tekan-lama atau keyboard,
+    let echoPending = false;      // ... dan contextmenu susulannya dari browser belum datang
+    let longPressed = false;      // tekanan terakhir berakhir sebagai tekan-lama (menu konteks)
+
+    const cancelPress = () => {
+        clearTimeout(pressTimer);
+        pressTimer = 0;
+    };
 
     const pointOf = event => {
         const rect = root.getBoundingClientRect();
@@ -1205,16 +1227,55 @@ function bindGestures(state) {
     root.addEventListener("pointerdown", event => {
         if (event.pointerType === "mouse" && event.button !== 0) return;
         stopAnimation(state);
+        cancelPress();
         if (pointers.size === 0) {
             start = pointOf(event);
             moved = false;
+            longPressed = false;
+            // Layar sentuh tidak punya klik kanan: penggantinya tekan-lama tanpa bergeser.
+            // Safari di iPhone tidak mengirim event contextmenu, jadi waktunya dihitung sendiri.
+            if (event.pointerType !== "mouse" && state.contextHandlers.length > 0) {
+                const target = event.target;
+                pressTimer = setTimeout(() => {
+                    pressTimer = 0;
+                    moved = true; // jari yang diangkat sesudahnya bukan tap
+                    longPressed = true;
+                    menuOpenedAt = performance.now();
+                    echoPending = true;
+                    openContextMenu(state, target, start, false);
+                }, LONG_PRESS_MS);
+            }
         }
         pointers.set(event.pointerId, pointOf(event));
         if (pointers.size > 1) {
             // Dua jari tidak pernah dihitung sebagai klik.
             moved = true;
+            cancelPress();
             pointers.forEach((point, pointerId) => capture(pointerId));
         }
+    });
+
+    root.addEventListener("contextmenu", event => {
+        // Tanpa pendengar, menu bawaan browser dibiarkan. Di dalam popup dan kontrol juga,
+        // supaya teksnya tetap bisa disalin lewat menu browser.
+        if (state.contextHandlers.length === 0) return;
+        if (event.target.closest && event.target.closest(".crootjs-map-corner, .crootjs-map-popup")) return;
+        event.preventDefault();
+        // Android mengirim contextmenu sendiri saat tekan-lama, dan keyboard (tombol Menu,
+        // Shift+F10) juga: menunya sudah atau segera dibuka di bawah, jangan dua kali.
+        if (echoPending && performance.now() - menuOpenedAt < 1000) {
+            echoPending = false;
+            return;
+        }
+        echoPending = false;
+        if (pressTimer) {
+            cancelPress();
+            moved = true;
+            longPressed = true;
+            openContextMenu(state, event.target, start, false);
+            return;
+        }
+        openContextMenu(state, event.target, pointOf(event), false);
     });
 
     root.addEventListener("pointermove", event => {
@@ -1239,6 +1300,7 @@ function bindGestures(state) {
         if (!moved) {
             if (Math.hypot(point[0] - start[0], point[1] - start[1]) < DRAG_THRESHOLD) return;
             moved = true;
+            cancelPress();
             clearHover(state);
             root.classList.remove("crootjs-map-pointer");
             // Pointer baru ditangkap setelah jelas ini geseran: kalau ditangkap sejak
@@ -1261,6 +1323,7 @@ function bindGestures(state) {
         const center = gesture().center;
         const pinching = pointers.size > 1;
         pointers.delete(event.pointerId);
+        cancelPress();
         // Pinch berakhir begitu jari tinggal satu: zoom dirapikan di titik tengah kedua jari
         // tadi, bukan di jari yang kebetulan diangkat terakhir.
         if (pinching && pointers.size < 2) snapZoom(state, center);
@@ -1273,6 +1336,8 @@ function bindGestures(state) {
     root.addEventListener("pointerleave", () => clearHover(state));
 
     root.addEventListener("dblclick", event => {
+        // Tap lalu tekan-lama di titik yang sama dihitung browser sebagai klik ganda.
+        if (longPressed) return;
         if (state.clickCapture) {
             state.clickCapture(toPosition(state, pointOf(event)), "dblclick");
             return;
@@ -1305,6 +1370,11 @@ function bindGestures(state) {
             animateZoom(state, Math.round(state.zoom) + 1, center);
         } else if (event.key === "-") {
             animateZoom(state, Math.round(state.zoom) - 1, center);
+        } else if ((event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) && state.contextHandlers.length > 0) {
+            // Dari keyboard, menunya dibuka di tengah peta.
+            menuOpenedAt = performance.now();
+            echoPending = true;
+            openContextMenu(state, root, center, true);
         } else {
             return;
         }
@@ -1457,6 +1527,7 @@ export function createMap(id, options = {}) {
         hover: null,
         tooltipElement: null,
         clickHandlers: [],
+        contextHandlers: [],
         renderFrame: 0,
         zoomFrame: 0,
         snapTimer: 0,
@@ -1529,6 +1600,15 @@ export function createMap(id, options = {}) {
             return function stop() {
                 const index = state.clickHandlers.indexOf(runFunction);
                 if (index !== -1) state.clickHandlers.splice(index, 1);
+            };
+        },
+        // runFunction(position, feature, detail) saat klik kanan atau tekan-lama di peta (lihat
+        // openContextMenu). Selama ada pendengar, menu bawaan browser di peta tidak muncul.
+        onContextMenu: runFunction => {
+            state.contextHandlers.push(runFunction);
+            return function stop() {
+                const index = state.contextHandlers.indexOf(runFunction);
+                if (index !== -1) state.contextHandlers.splice(index, 1);
             };
         },
         // Meminjam klik peta: selama aktif, klik dan klik ganda diteruskan ke
@@ -1978,4 +2058,19 @@ export function onMapClick(id, runFunction) {
     const state = getMap(id);
     if (!state) return;
     state.clickHandlers.push(runFunction);
+}
+
+// runFunction(position, feature, detail) dipanggil saat peta diklik kanan, ditekan lama di
+// layar sentuh (sekitar 0,5 detik tanpa bergeser), atau tombol Menu/Shift+F10 ditekan saat
+// peta difokus. feature = fitur GeoJSON di titik itu, atau null. detail = { point, keyboard }.
+// Selama ada pendengar, menu bawaan browser tidak muncul di peta. Untuk menu siap pakai,
+// lihat addContextMenu di mapcontrol.js. Mengembalikan function stop().
+export function onMapContextMenu(id, runFunction) {
+    const state = getMap(id);
+    if (!state) return () => {};
+    state.contextHandlers.push(runFunction);
+    return function stop() {
+        const index = state.contextHandlers.indexOf(runFunction);
+        if (index !== -1) state.contextHandlers.splice(index, 1);
+    };
 }

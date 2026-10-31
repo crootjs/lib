@@ -530,7 +530,9 @@ function breakIndex(breaks, value) {
 //   onClick     function(cell) yang dipanggil saat petak diklik.
 //   legend      true atau { title, corner } untuk menampilkan legenda warnanya.
 // cell = { value, count, mean, min, max, sum, center: [lng, lat], color, label }.
-// Mengembalikan { setData(data), setOptions(options), show(), hide(), remove() }.
+// Mengembalikan { setData(data), setOptions(options), show(), hide(), remove(), cellAt(position) }.
+// cellAt(position) = cell di [lng, lat] itu (seperti yang diterima onClick), atau null - misalnya
+// untuk menu klik kanan addContextMenu.
 export function addGridMap(id, data, options = {}) {
     const map = mapOf(id);
     const nothing = { setData() {}, setOptions() {}, show() {}, hide() {}, remove() {} };
@@ -727,15 +729,21 @@ export function addGridMap(id, data, options = {}) {
         return box;
     };
 
-    // Klik peta yang tidak mengenai fitur addGeoJSON: cari petaknya pada level yang tampil.
-    const stopClick = map.onClick((position, feature) => {
-        if (hidden || feature || !points || points.total === 0) return;
+    // Petak di position [lng, lat] pada level zoom yang sedang tampil, atau null.
+    const cellAt = position => {
+        if (hidden || !points || points.total === 0) return null;
         const grid = gridAt(levelKey(map.getView().zoom));
         const [x, y] = project(position);
         const [column, row] = cellOf(grid.kind, grid.size, x, y);
         const cell = grid.cells.get(cellKey(column, row));
-        if (!cell) return;
-        const info = describeCell(grid, cell);
+        return cell ? describeCell(grid, cell) : null;
+    };
+
+    // Klik peta yang tidak mengenai fitur addGeoJSON: cari petaknya pada level yang tampil.
+    const stopClick = map.onClick((position, feature) => {
+        if (feature) return;
+        const info = cellAt(position);
+        if (!info) return;
         if (settings.popup !== false) {
             const content = typeof settings.popup === "function" ? settings.popup(info) : defaultPopup(info);
             if (content !== null && content !== undefined && content !== "") {
@@ -754,6 +762,7 @@ export function addGridMap(id, data, options = {}) {
     layer.setOpacity(Number.isFinite(settings.opacity) ? settings.opacity : 0.7);
 
     return {
+        cellAt,
         setData(value) {
             load(value);
             shownLevel = null;

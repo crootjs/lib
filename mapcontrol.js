@@ -1,5 +1,5 @@
 // Modul tambahan untuk map.js: skala peta, "lokasi saya", live tracking, panel pilihan peta
-// dasar dan lapisan, tampilan koordinat, dan layar penuh.
+// dasar dan lapisan, tampilan koordinat, menu klik kanan, dan layar penuh.
 // Sengaja tidak mengimpor map.js - petanya dijangkau lewat antarmuka yang dititipkan
 // createMap() di elemennya (element.crootjsMap), supaya map.js tidak termuat dua kali.
 
@@ -229,6 +229,55 @@ function injectStyles() {
 .crootjs-map-card-name { max-width: 100%; overflow-wrap: break-word; hyphens: auto; }
 .crootjs-map-card[aria-pressed="true"] .crootjs-map-card-thumb { box-shadow: 0 0 0 2px var(--crootjs-map-accent, #2563eb); }
 .crootjs-map-card[aria-pressed="true"] .crootjs-map-card-name { color: var(--crootjs-map-accent, #2563eb); font-weight: 600; }
+.crootjs-map-menu {
+    position: fixed;
+    z-index: 2147483000;
+    box-sizing: border-box;
+    min-width: 180px;
+    max-width: min(320px, calc(100vw - 8px));
+    margin: 0;
+    padding: 4px;
+    border-radius: 8px;
+    background-color: #fff;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+    color: #1f2937;
+    font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
+}
+.crootjs-map-menu:focus { outline: none; }
+button.crootjs-map-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    height: auto;
+    margin: 0;
+    padding: 6px 10px;
+    border: 0;
+    border-radius: 5px;
+    background-color: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+button.crootjs-map-menu-item:hover,
+button.crootjs-map-menu-item:focus-visible,
+button.crootjs-map-menu-item[aria-expanded="true"] { background-color: #f3f4f6; outline: none; }
+button.crootjs-map-menu-item:disabled { color: #9ca3af; cursor: default; background-color: transparent; }
+button.crootjs-map-menu-danger { color: #dc2626; }
+.crootjs-map-menu-icon { display: inline-flex; flex: none; justify-content: center; width: 16px; }
+.crootjs-map-menu-icon:empty { display: none; }
+.crootjs-map-menu-label { flex: 1; min-width: 0; overflow-wrap: break-word; }
+.crootjs-map-menu-arrow { flex: none; color: #9ca3af; }
+.crootjs-map-menu-separator { height: 1px; margin: 4px 6px; background-color: #e5e7eb; }
+.crootjs-map-menu-copy { position: fixed; top: 0; left: -9999px; opacity: 0; }
+@media (pointer: coarse) {
+    button.crootjs-map-menu-item { padding: 10px 12px; }
+}
 @media (max-width: 640px) {
     .crootjs-map-cards-wide { grid-template-columns: repeat(2, var(--crootjs-map-card-width, 92px)); }
 }
@@ -238,6 +287,13 @@ function injectStyles() {
     .crootjs-map button.crootjs-map-card:hover { background-color: #374151; }
     .crootjs-map-card-thumb { background-color: #374151; }
     .crootjs-map-card[aria-pressed="true"] .crootjs-map-card-name { color: var(--crootjs-map-accent, #60a5fa); }
+    .crootjs-map-menu { background-color: #1f2937; color: #f3f4f6; }
+    button.crootjs-map-menu-item:hover,
+    button.crootjs-map-menu-item:focus-visible,
+    button.crootjs-map-menu-item[aria-expanded="true"] { background-color: #374151; }
+    button.crootjs-map-menu-item:disabled { color: #6b7280; }
+    button.crootjs-map-menu-danger { color: #f87171; }
+    .crootjs-map-menu-separator { background-color: #374151; }
 }
 `;
     // Di awal <head> (sesudah style CrootJS lain), bukan di akhir: CSS halaman yang ditautkan
@@ -874,6 +930,284 @@ export function addCoordinateControl(id, options = {}) {
         map.root.removeEventListener("pointerleave", leave);
         stopClick();
         removeControl();
+    };
+}
+
+let openMenu = null; // menu konteks yang sedang terbuka (hanya satu per halaman)
+
+// Menyalin teks; di luar HTTPS/localhost (tanpa Clipboard API) lewat textarea sementara.
+function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).catch(() => {});
+        return;
+    }
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "");
+    area.className = "crootjs-map-menu-copy";
+    document.body.appendChild(area);
+    area.select();
+    try {
+        document.execCommand("copy");
+    } catch (copyError) {
+        // tidak bisa disalin di browser ini
+    }
+    area.remove();
+}
+
+// Item siap pakai yang ditulis sebagai teks di daftar item addContextMenu.
+function builtinItem(name, map, position, options) {
+    const view = map.getView();
+    const zoomTo = step => () => map.setView(position, Math.round(view.zoom) + step);
+    if (name === "coordinates") {
+        const precision = Number.isInteger(options.precision) ? options.precision : 6;
+        const text = typeof options.format === "function" ? String(options.format(position)) : formatPosition(position, precision);
+        return { label: text, icon: COPY_ICON, title: "Salin koordinat", onClick: () => copyText(text) };
+    }
+    if (name === "center") return { label: "Pusatkan di sini", onClick: () => map.setView(position, view.zoom) };
+    if (name === "zoom-in") return { label: "Perbesar di sini", onClick: zoomTo(1) };
+    if (name === "zoom-out") return { label: "Perkecil", onClick: zoomTo(-1) };
+    console.warn(`Item menu "${name}" tidak dikenal. Yang tersedia: "coordinates", "center", "zoom-in", "zoom-out", dan "-".`);
+    return null;
+}
+
+// Item yang kosong (false, null, undefined) dilewati, garis pemisah di awal, di akhir, atau
+// berturut-turut dibuang - supaya item bersyarat (feature && {...}) tidak meninggalkan garis.
+function cleanItems(list, map, position, options) {
+    const result = [];
+    (Array.isArray(list) ? list : []).forEach(entry => {
+        let item = entry;
+        if (typeof item === "string" && item !== "-") item = builtinItem(item, map, position, options);
+        if (!item) return;
+        if (item === "-" && (result.length === 0 || result[result.length - 1] === "-")) return;
+        result.push(item);
+    });
+    while (result[result.length - 1] === "-") result.pop();
+    return result;
+}
+
+// Menempatkan menu di (x, y) layar; kalau tidak muat, dibalik ke kiri/atas titiknya.
+function placeMenu(element, x, y, flipX = 0) {
+    const width = element.offsetWidth;
+    const height = element.offsetHeight;
+    let left = x;
+    let top = y;
+    if (left + width > window.innerWidth - 4) left = Math.max(4, (flipX || x) - width);
+    if (top + height > window.innerHeight - 4) top = Math.max(4, Math.min(y - height, window.innerHeight - height - 4));
+    element.style.left = left + "px";
+    element.style.top = top + "px";
+}
+
+function buildMenu(items, map, position, feature, options, close) {
+    const element = document.createElement("div");
+    element.className = "crootjs-map-menu";
+    element.setAttribute("role", "menu");
+    element.tabIndex = -1;
+    let submenu = null; // { element, owner } submenu yang sedang terbuka dari menu ini
+
+    const closeSubmenu = () => {
+        if (!submenu) return;
+        submenu.owner.setAttribute("aria-expanded", "false");
+        submenu.element.remove();
+        submenu = null;
+    };
+    const buttons = () => [...element.querySelectorAll(":scope > button.crootjs-map-menu-item:not(:disabled)")];
+    const openSubmenu = (button, children, focusFirst) => {
+        if (submenu && submenu.owner === button) return;
+        closeSubmenu();
+        const child = buildMenu(children, map, position, feature, options, close);
+        child.crootjsParent = button;
+        document.body.appendChild(child);
+        const rect = button.getBoundingClientRect();
+        placeMenu(child, rect.right + 2, rect.top - 4, rect.left - 2);
+        button.setAttribute("aria-expanded", "true");
+        submenu = { element: child, owner: button };
+        element.crootjsSubmenu = child;
+        if (focusFirst) {
+            const first = child.querySelector("button.crootjs-map-menu-item:not(:disabled)");
+            if (first) first.focus();
+        }
+    };
+    element.crootjsCloseSubmenu = closeSubmenu;
+
+    items.forEach(item => {
+        if (item === "-") {
+            const line = document.createElement("div");
+            line.className = "crootjs-map-menu-separator";
+            line.setAttribute("role", "separator");
+            element.appendChild(line);
+            return;
+        }
+        const children = Array.isArray(item.items) ? cleanItems(item.items, map, position, options) : null;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "crootjs-map-menu-item" + (item.danger ? " crootjs-map-menu-danger" : "");
+        button.setAttribute("role", "menuitem");
+        button.disabled = Boolean(item.disabled) || (children !== null && children.length === 0);
+        if (item.title) button.title = item.title;
+        const icon = document.createElement("span");
+        icon.className = "crootjs-map-menu-icon";
+        if (item.icon instanceof Node) icon.appendChild(item.icon);
+        else if (typeof item.icon === "string" && item.icon.trim().startsWith("<svg")) icon.innerHTML = item.icon;
+        else if (item.icon) icon.textContent = String(item.icon);
+        const label = document.createElement("span");
+        label.className = "crootjs-map-menu-label";
+        label.textContent = String(item.label ?? "");
+        button.append(icon, label);
+        if (children) {
+            button.setAttribute("aria-haspopup", "menu");
+            button.setAttribute("aria-expanded", "false");
+            const arrow = document.createElement("span");
+            arrow.className = "crootjs-map-menu-arrow";
+            arrow.setAttribute("aria-hidden", "true");
+            arrow.textContent = "›";
+            button.appendChild(arrow);
+            button.addEventListener("click", () => openSubmenu(button, children, true));
+            button.addEventListener("keydown", event => {
+                if (event.key === "ArrowRight") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    openSubmenu(button, children, true);
+                }
+            });
+            button.addEventListener("pointerenter", event => {
+                if (event.pointerType === "mouse" && !button.disabled) openSubmenu(button, children, false);
+            });
+        } else {
+            button.addEventListener("click", () => {
+                close();
+                if (typeof item.onClick === "function") item.onClick(position, feature);
+            });
+            button.addEventListener("pointerenter", event => {
+                if (event.pointerType === "mouse") closeSubmenu();
+            });
+        }
+        element.appendChild(button);
+    });
+
+    element.addEventListener("keydown", event => {
+        const list = buttons();
+        const index = list.indexOf(document.activeElement);
+        const focusAt = next => {
+            if (list.length > 0) list[(next + list.length) % list.length].focus();
+        };
+        if (event.key === "ArrowDown") focusAt(index + 1);
+        else if (event.key === "ArrowUp") focusAt(index < 0 ? -1 : index - 1);
+        else if (event.key === "Home") focusAt(0);
+        else if (event.key === "End") focusAt(-1);
+        else if ((event.key === "ArrowLeft" || event.key === "Escape") && element.crootjsParent) {
+            // menutup submenu ini saja, kembali ke item induknya
+            const owner = element.crootjsParent;
+            const parentMenu = owner.parentElement;
+            parentMenu.crootjsCloseSubmenu();
+            owner.focus();
+        } else if (event.key === "Escape" || event.key === "Tab") {
+            close(true);
+            if (event.key === "Tab") return;
+        } else {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+    });
+    return element;
+}
+
+function closeOpenMenu(restoreFocus) {
+    if (!openMenu) return;
+    const menu = openMenu;
+    openMenu = null;
+    const hadFocus = menu.contains(document.activeElement);
+    menu.elements().forEach(element => element.remove());
+    menu.cleanup();
+    // Fokus yang tadi ada di menu dikembalikan ke peta, supaya pengguna keyboard tidak
+    // terlempar ke awal halaman.
+    if (hadFocus || restoreFocus) menu.map.root.focus({ preventScroll: true });
+}
+
+// Menu klik kanan di peta. Muncul saat peta diklik kanan, ditekan lama di layar sentuh
+// (sekitar 0,5 detik tanpa bergeser), atau tombol Menu/Shift+F10 ditekan saat peta difokus.
+// items: array item, atau function (position, feature) => array item - dipanggil setiap kali
+//   menu dibuka, dengan position = [lng, lat] titik yang diklik dan feature = fitur GeoJSON
+//   di titik itu (atau null). Array kosong = menu tidak muncul. Satu item:
+//     { label, onClick(position, feature), icon, disabled, danger, title, items }
+//   items di dalam item = submenu. "-" = garis pemisah. Teks "coordinates", "center",
+//   "zoom-in", "zoom-out" = item siap pakai. false/null/undefined dilewati.
+// options (semua opsional):
+//   precision  angka di belakang koma untuk item "coordinates". Default 6.
+//   format     function (position) => teks untuk item "coordinates" (dan yang disalin).
+//   onOpen     function (position, feature) yang dipanggil setiap kali menu terbuka.
+// Mengembalikan { close(), remove() }.
+export function addContextMenu(id, items, options = {}) {
+    const map = mapOf(id);
+    if (!map || typeof map.onContextMenu !== "function") {
+        if (map) console.warn("addContextMenu butuh map.js versi 0.0.23 atau lebih baru.");
+        return { close() {}, remove() {} };
+    }
+    injectStyles();
+    let mine = null; // menu yang dibuka oleh pemanggilan addContextMenu ini
+
+    const stop = map.onContextMenu((position, feature, detail) => {
+        closeOpenMenu();
+        const list = cleanItems(typeof items === "function" ? items(position, feature) : items, map, position, options);
+        if (list.length === 0) return;
+        const element = buildMenu(list, map, position, feature, options, restoreFocus => closeOpenMenu(restoreFocus));
+        element.setAttribute("aria-label", "Menu peta");
+        document.body.appendChild(element);
+        const rect = map.root.getBoundingClientRect();
+        placeMenu(element, rect.left + detail.point[0], rect.top + detail.point[1]);
+
+        const elements = () => {
+            const result = [];
+            for (let menu = element; menu; menu = menu.crootjsSubmenu && menu.crootjsSubmenu.isConnected ? menu.crootjsSubmenu : null) result.push(menu);
+            return result;
+        };
+        const contains = node => elements().some(menu => menu.contains(node));
+        const outside = event => {
+            if (!contains(event.target)) closeOpenMenu();
+        };
+        const dismiss = () => closeOpenMenu();
+        // Pendengar dipasang sesudah event yang membuka menu selesai, supaya tidak langsung
+        // menutupnya lagi.
+        const timer = setTimeout(() => {
+            document.addEventListener("pointerdown", outside, true);
+            window.addEventListener("resize", dismiss);
+            window.addEventListener("blur", dismiss);
+        }, 0);
+        const stopMove = map.onMove(dismiss);
+        mine = {
+            map,
+            keyboard: detail.keyboard,
+            elements,
+            contains,
+            cleanup() {
+                clearTimeout(timer);
+                document.removeEventListener("pointerdown", outside, true);
+                window.removeEventListener("resize", dismiss);
+                window.removeEventListener("blur", dismiss);
+                stopMove();
+                if (mine === this) mine = null;
+            }
+        };
+        openMenu = mine;
+
+        if (detail.keyboard) {
+            const first = element.querySelector("button.crootjs-map-menu-item:not(:disabled)");
+            (first || element).focus();
+        } else {
+            element.focus({ preventScroll: true });
+        }
+        if (typeof options.onOpen === "function") options.onOpen(position, feature);
+    });
+
+    return {
+        close() {
+            if (mine && openMenu === mine) closeOpenMenu();
+        },
+        remove() {
+            stop();
+            if (mine && openMenu === mine) closeOpenMenu();
+        }
     };
 }
 
