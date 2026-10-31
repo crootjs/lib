@@ -693,9 +693,21 @@ async function renderImage(map, options) {
         context.drawImage(tileImages[index], parseFloat(style.left), parseFloat(style.top), parseFloat(style.width), parseFloat(style.height));
     });
 
-    // Gambar overlay, dengan matriks transform yang sama seperti di layar.
-    for (const img of root.querySelectorAll(".crootjs-map-underlay img")) {
-        if (img.style.visibility === "hidden" || !img.naturalWidth) continue;
+    // Gambar overlay dan canvas heatmap (mapheat.js), urut seperti di layar, dengan matriks
+    // transform yang sama.
+    for (const element of root.querySelectorAll(".crootjs-map-underlay > *")) {
+        if (element instanceof HTMLCanvasElement) {
+            if (element.hidden || !element.width) continue;
+            const matrix = new DOMMatrix(getComputedStyle(element).transform);
+            context.save();
+            context.globalAlpha = Number(getComputedStyle(element).opacity);
+            context.transform(matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f);
+            context.drawImage(element, 0, 0, parseFloat(element.style.width), parseFloat(element.style.height));
+            context.restore();
+            continue;
+        }
+        const img = element;
+        if (!(img instanceof HTMLImageElement) || img.style.visibility === "hidden" || !img.naturalWidth) continue;
         const loaded = await loadImage(img.src);
         if (!loaded) {
             missing++;
