@@ -5,6 +5,7 @@
 
 const EQUATOR = 40075016.686; // keliling bumi di khatulistiwa (meter), dasar ukuran tile Web Mercator
 const LOCATE_TIMEOUT_MS = 15000;
+const DEFAULT_TILES = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"; // sama dengan bawaan map.js
 
 const LOCATE_ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">'
     + '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>';
@@ -161,6 +162,81 @@ function injectStyles() {
     border-radius: 0 !important;
 }
 .crootjs-map-panel-group + .crootjs-map-panel-group { margin-top: 6px; padding-top: 6px; border-top: 1px solid #e5e7eb; }
+/* Pemilih peta dasar gaya kartu (addBasemapControl style: "cards"). Warna aksen bisa diganti
+   lewat --crootjs-map-accent. */
+.crootjs-map-cards { position: relative; }
+.crootjs-map-cards-grid {
+    position: absolute;
+    z-index: 2;
+    display: grid;
+    grid-template-columns: repeat(var(--crootjs-map-cards-columns, 3), 76px);
+    gap: 4px;
+    max-height: 70vh;
+    overflow-y: auto;
+    padding: 8px;
+    border-radius: 8px;
+    background-color: #fff;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    color: #1f2937;
+}
+.crootjs-map-cards-grid[hidden] { display: none; }
+.crootjs-map-cards-top .crootjs-map-cards-grid { top: 0; }
+.crootjs-map-cards-bottom .crootjs-map-cards-grid { bottom: 0; }
+.crootjs-map-cards-left .crootjs-map-cards-grid { left: 0; }
+.crootjs-map-cards-right .crootjs-map-cards-grid { right: 0; }
+.crootjs-map-cards-title {
+    grid-column: 1 / -1;
+    margin: 0 2px 2px;
+    font: 600 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+.crootjs-map button.crootjs-map-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    box-sizing: border-box;
+    width: 76px;
+    min-width: 0;
+    height: auto;
+    margin: 0;
+    padding: 4px;
+    border: 0;
+    border-radius: 8px;
+    background-color: transparent;
+    color: inherit;
+    font: 11px/1.25 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    text-align: center;
+    cursor: pointer;
+}
+.crootjs-map button.crootjs-map-card:hover { background-color: #f3f4f6; }
+.crootjs-map button.crootjs-map-card:focus-visible { outline: 2px solid var(--crootjs-map-accent, #2563eb); outline-offset: -2px; }
+.crootjs-map button.crootjs-map-cards-toggle {
+    background-color: #fff;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+    color: #1f2937;
+}
+.crootjs-map-card-thumb {
+    display: block;
+    width: 64px;
+    height: 64px;
+    border-radius: 6px;
+    background-color: #e5e7eb;
+    background-position: center;
+    background-size: cover;
+}
+.crootjs-map-card-name { max-width: 100%; overflow-wrap: anywhere; }
+.crootjs-map-card[aria-pressed="true"] .crootjs-map-card-thumb { box-shadow: 0 0 0 2px var(--crootjs-map-accent, #2563eb); }
+.crootjs-map-card[aria-pressed="true"] .crootjs-map-card-name { color: var(--crootjs-map-accent, #2563eb); font-weight: 600; }
+@media (max-width: 640px) {
+    .crootjs-map-cards-wide { grid-template-columns: repeat(2, 76px); }
+}
+@media (prefers-color-scheme: dark) {
+    .crootjs-map-cards-grid,
+    .crootjs-map button.crootjs-map-cards-toggle { background-color: #1f2937; color: #f3f4f6; }
+    .crootjs-map button.crootjs-map-card:hover { background-color: #374151; }
+    .crootjs-map-card-thumb { background-color: #374151; }
+    .crootjs-map-card[aria-pressed="true"] .crootjs-map-card-name { color: var(--crootjs-map-accent, #60a5fa); }
+}
 `;
     // Di awal <head> (sesudah style CrootJS lain), bukan di akhir: CSS halaman yang ditautkan
     // sesudahnya menang tanpa !important, jadi tampilan bawaan ini mudah ditimpa.
@@ -468,34 +544,219 @@ function choiceRow(type, name, text, checked, onChange) {
     return { label, input };
 }
 
-// Menambahkan pilihan peta dasar (radio) ke peta. Memilih salah satu memanggil setTiles()
-// dari map.js - lapisan, marker, dan popup tetap di tempatnya.
+const basemapControls = new WeakMap(); // peta -> pemilih peta dasar terakhir (untuk setBasemap)
+
+function findBasemap(basemaps, nameOrIndex) {
+    if (typeof nameOrIndex === "string") return basemaps.findIndex(basemap => basemap.name === nameOrIndex);
+    return Number.isInteger(nameOrIndex) && basemaps[nameOrIndex] ? nameOrIndex : -1;
+}
+
+// URL satu tile dari pola tile basemap, yaitu tile yang memuat titik center pada zoom itu.
+// Polanya sama dengan setTiles(): {z} {x} {y} {-y} {s} {r}.
+function previewTile(template, basemap, center, zoom) {
+    const native = Number.isFinite(basemap.maxNativeZoom) ? basemap.maxNativeZoom : Infinity;
+    const highest = Number.isFinite(basemap.maxZoom) ? Math.min(native, basemap.maxZoom) : native;
+    const z = Math.max(0, Math.min(Math.round(zoom), Math.floor(Math.min(highest, 22))));
+    const count = Math.pow(2, z);
+    const latitude = Math.max(-85.0511, Math.min(85.0511, center[1])) * Math.PI / 180;
+    const clampTile = value => Math.max(0, Math.min(count - 1, Math.floor(value * count)));
+    const x = clampTile((center[0] + 180) / 360);
+    const y = clampTile((1 - Math.asinh(Math.tan(latitude)) / Math.PI) / 2);
+    const subdomains = basemap.subdomains === undefined ? ["a"]
+        : (typeof basemap.subdomains === "string" ? basemap.subdomains.split("") : [].concat(basemap.subdomains));
+    return template
+        .replace(/\{s\}/g, subdomains.length ? subdomains[0] : "")
+        .replace(/\{r\}/g, window.devicePixelRatio > 1 ? "@2x" : "")
+        .replace(/\{z\}/g, z)
+        .replace(/\{x\}/g, x)
+        .replace(/\{-y\}/g, count - 1 - y)
+        .replace(/\{y\}/g, y);
+}
+
+// Gambar kartu: thumbnail buatan sendiri, atau tile dasar dengan tile label di atasnya
+// (Hybrid = citra + label). Gambar latar pertama digambar paling atas.
+function previewImages(basemap, center, zoom) {
+    if (basemap.thumbnail) return [basemap.thumbnail];
+    const tiles = basemap.tiles === undefined || basemap.tiles === true ? DEFAULT_TILES : basemap.tiles;
+    if (!tiles) return [];
+    return [...[].concat(basemap.labels || []), tiles].map(template => previewTile(template, basemap, center, zoom));
+}
+
+function fillCard(card, basemap, index, images) {
+    const thumb = document.createElement("span");
+    thumb.className = "crootjs-map-card-thumb";
+    thumb.style.backgroundImage = images.map(url => `url("${String(url).replace(/["\\]/g, encodeURIComponent)}")`).join(", ");
+    const name = document.createElement("span");
+    name.className = "crootjs-map-card-name";
+    name.textContent = basemap.name || "Peta " + (index + 1);
+    card.replaceChildren(thumb, name);
+}
+
+function cardButton(className) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "crootjs-map-card " + className;
+    return button;
+}
+
+// Pemilih gaya kartu: satu kartu peta aktif; dibuka (hover atau klik) menjadi kisi semua pilihan.
+function basemapCards(map, basemaps, selected, choose, options) {
+    injectStyles();
+    const view = map.getView();
+    const center = Array.isArray(options.thumbnailCenter) ? options.thumbnailCenter : view.center;
+    const zoom = Number.isFinite(options.thumbnailZoom) ? options.thumbnailZoom : view.zoom;
+    const images = basemaps.map(basemap => previewImages(basemap, center, zoom));
+    const title = options.title === undefined ? "Peta dasar" : options.title;
+    const corner = options.corner || "top-right";
+    const columns = Math.max(1, Math.round(options.columns) || 3);
+
+    const root = document.createElement("div");
+    root.className = "crootjs-map-cards crootjs-map-cards-" + (corner.startsWith("bottom") ? "bottom" : "top")
+        + " crootjs-map-cards-" + (corner.endsWith("left") ? "left" : "right");
+    const toggle = cardButton("crootjs-map-cards-toggle");
+    toggle.setAttribute("aria-haspopup", "true");
+    toggle.setAttribute("aria-expanded", "false");
+    const grid = document.createElement("div");
+    grid.className = "crootjs-map-cards-grid" + (columns > 2 ? " crootjs-map-cards-wide" : "");
+    grid.setAttribute("role", "group");
+    grid.setAttribute("aria-label", title || "Peta dasar");
+    grid.style.setProperty("--crootjs-map-cards-columns", columns);
+    grid.hidden = true;
+    if (title) {
+        const heading = document.createElement("div");
+        heading.className = "crootjs-map-cards-title";
+        heading.textContent = title;
+        grid.appendChild(heading);
+    }
+    const cards = basemaps.map((basemap, index) => {
+        const card = cardButton("crootjs-map-cards-option");
+        fillCard(card, basemap, index, images[index]);
+        card.addEventListener("click", () => {
+            choose(index);
+            close(true);
+        });
+        return card;
+    });
+    grid.append(...cards);
+    root.append(toggle, grid);
+
+    const sync = index => {
+        fillCard(toggle, basemaps[index], index, images[index]);
+        toggle.title = (title ? title + ": " : "") + (basemaps[index].name || "Peta " + (index + 1));
+        cards.forEach((card, i) => card.setAttribute("aria-pressed", String(i === index)));
+    };
+    const open = moveFocus => {
+        grid.hidden = false;
+        toggle.setAttribute("aria-expanded", "true");
+        if (moveFocus) (grid.querySelector('[aria-pressed="true"]') || cards[0]).focus({ preventScroll: true });
+    };
+    const close = returnFocus => {
+        if (grid.hidden) return;
+        const focused = grid.contains(document.activeElement);
+        grid.hidden = true;
+        toggle.setAttribute("aria-expanded", "false");
+        if (returnFocus || focused) toggle.focus({ preventScroll: true });
+    };
+
+    toggle.addEventListener("click", () => (grid.hidden ? open(true) : close(true)));
+    const trigger = options.trigger || (window.matchMedia("(hover: hover)").matches ? "hover" : "click");
+    let leaveTimer = 0;
+    if (trigger === "hover") {
+        root.addEventListener("mouseenter", () => {
+            clearTimeout(leaveTimer);
+            open(false);
+        });
+        // jeda singkat supaya kisi tidak tertutup saat kursor melintas sebentar keluar
+        root.addEventListener("mouseleave", () => {
+            leaveTimer = setTimeout(() => close(false), 200);
+        });
+    }
+    root.addEventListener("keydown", event => {
+        if (event.key !== "Escape" || grid.hidden) return;
+        event.stopPropagation();
+        close(true);
+    });
+    root.addEventListener("focusout", event => {
+        if (!root.contains(event.relatedTarget) && event.relatedTarget) close(false);
+    });
+    // fase capture: kontrol peta lain menghentikan pointerdown sebelum sampai ke document
+    const outside = event => {
+        if (!root.contains(event.target)) close(false);
+    };
+    document.addEventListener("pointerdown", outside, true);
+
+    sync(selected);
+    const removeControl = map.addControl(root, corner);
+    return {
+        sync,
+        remove() {
+            clearTimeout(leaveTimer);
+            document.removeEventListener("pointerdown", outside, true);
+            removeControl();
+        },
+    };
+}
+
+function basemapList(map, basemaps, selected, choose, options) {
+    const group = "crootjs-basemap-" + (++panelCount);
+    const rows = basemaps.map((basemap, index) => choiceRow("radio", group, basemap.name || "Peta " + (index + 1), index === selected, () => choose(index)));
+    const remove = addPanel(map, options.title === undefined ? "Peta dasar" : options.title, rows.map(row => row.label), options);
+    return {
+        sync: index => { rows[index].input.checked = true; },
+        remove,
+    };
+}
+
+// Menambahkan pilihan peta dasar ke peta. Memilih salah satu memanggil setTiles() dari
+// map.js - lapisan, marker, dan popup tetap di tempatnya.
 // basemaps: array { name, tiles, labels, maxNativeZoom, subdomains, errorTiles, attribution,
-// minZoom, maxZoom } - semua kecuali name sama seperti opsi setTiles().
+// minZoom, maxZoom, thumbnail } - semua kecuali name dan thumbnail sama seperti opsi setTiles().
 // options (semua opsional):
+//   style      "list" (bawaan, daftar radio) atau "cards" (kartu bergambar seperti di Google Maps)
 //   selected   indeks atau name peta dasar yang langsung dipasang. Default 0 (yang pertama).
-//   title      judul panel. Default "Peta dasar".
+//   title      judul panel/kisi. Default "Peta dasar".
 //   corner     pojok peta. Default "top-right".
-//   collapsed  true = panel disimpan di balik tombol
-//   onChange   function (basemap) yang dipanggil setelah peta dasar diganti
-// Mengembalikan function remove() untuk mencabut panelnya (peta dasar terakhir tetap terpasang).
+//   collapsed  (list) true = panel disimpan di balik tombol
+//   trigger    (cards) "hover" atau "click". Default hover di perangkat ber-mouse, klik di layar sentuh.
+//   columns    (cards) jumlah kolom kisi. Default 3; di layar <= 640 px paling banyak 2.
+//   thumbnailCenter, thumbnailZoom  (cards) titik [lng, lat] dan zoom pratinjau basemap tanpa
+//              thumbnail. Default pusat dan zoom peta saat kontrol dipasang.
+//   onChange   function (basemap) yang dipanggil setelah peta dasar diganti (termasuk lewat setBasemap)
+// Mengembalikan function remove() untuk mencabut kontrolnya (peta dasar terakhir tetap terpasang).
 export function addBasemapControl(id, basemaps, options = {}) {
     const map = mapOf(id);
     if (!map || !Array.isArray(basemaps) || basemaps.length === 0) return () => {};
-    const group = "crootjs-basemap-" + (++panelCount);
-    let selected = typeof options.selected === "string"
-        ? basemaps.findIndex(basemap => basemap.name === options.selected)
-        : (Number.isInteger(options.selected) ? options.selected : 0);
-    if (!basemaps[selected]) selected = 0;
+    let selected = findBasemap(basemaps, options.selected === undefined ? 0 : options.selected);
+    if (selected === -1) selected = 0;
 
+    let view = null;
     const choose = index => {
         const basemap = basemaps[index];
         map.setTiles(basemap.tiles, basemap);
+        view.sync(index);
         if (typeof options.onChange === "function") options.onChange(basemap);
     };
-    const rows = basemaps.map((basemap, index) => choiceRow("radio", group, basemap.name || "Peta " + (index + 1), index === selected, () => choose(index)).label);
     map.setTiles(basemaps[selected].tiles, basemaps[selected]);
-    return addPanel(map, options.title === undefined ? "Peta dasar" : options.title, rows, options);
+    view = (options.style === "cards" ? basemapCards : basemapList)(map, basemaps, selected, choose, options);
+    const control = { basemaps, choose };
+    basemapControls.set(map, control);
+    return function remove() {
+        view.remove();
+        if (basemapControls.get(map) === control) basemapControls.delete(map);
+    };
+}
+
+// Mengganti peta dasar dari kode lewat pemilih addBasemapControl (yang terakhir dipasang di
+// peta itu), sehingga radio atau kartunya ikut berpindah. name: name atau indeks basemap.
+// Mengembalikan true kalau berhasil, false kalau peta, pemilih, atau basemap-nya tidak ada.
+export function setBasemap(id, name) {
+    const map = mapOf(id);
+    const control = map && basemapControls.get(map);
+    if (!control) return false;
+    const index = findBasemap(control.basemaps, name);
+    if (index === -1) return false;
+    control.choose(index);
+    return true;
 }
 
 // Menambahkan daftar centang untuk menampilkan/menyembunyikan lapisan bernama (opsi name
