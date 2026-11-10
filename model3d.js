@@ -69,6 +69,9 @@ uniform float uLit;
 uniform float uAlphaMode;
 uniform float uAlphaCutoff;
 uniform float uHighlight;
+uniform vec4 uClip;
+uniform float uClipOn;
+uniform vec4 uCap;
 varying vec3 vWorld;
 varying vec3 vNormal;
 varying vec2 vUV;
@@ -81,6 +84,16 @@ void main() {
     }
     if (uAlphaMode > 0.5 && uAlphaMode < 1.5 && base.a < uAlphaCutoff) discard;
     float alpha = uAlphaMode > 1.5 ? base.a : 1.0;
+    // Potongan melintang: sisi depan bidang dibuang. Permukaan dalam yang jadi terlihat
+    // (sisi belakang segitiga) diwarnai rata seperti bidang potong yang padat.
+    if (uClipOn > 0.5) {
+        if (dot(uClip.xyz, vWorld) + uClip.w > 0.0) discard;
+        if (!gl_FrontFacing) {
+            vec3 cap = uCap.a > 0.5 ? uCap.rgb : base.rgb * 0.55;
+            gl_FragColor = vec4(pow(clamp(cap, 0.0, 1.0), vec3(1.0 / 2.2)), 1.0);
+            return;
+        }
+    }
     vec3 color = base.rgb;
     if (uLit > 0.5) {
         vec3 n = normalize(vNormal);
@@ -548,7 +561,7 @@ function createProgram(gl, webgl2) {
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program));
     const uniforms = {};
     ["uViewProj", "uModel", "uNormal", "uColor", "uTexture", "uUseTexture", "uEmissive", "uEye", "uLight",
-        "uMetallic", "uRoughness", "uLit", "uAlphaMode", "uAlphaCutoff", "uHighlight"].forEach(name => {
+        "uMetallic", "uRoughness", "uLit", "uAlphaMode", "uAlphaCutoff", "uHighlight", "uClip", "uClipOn", "uCap"].forEach(name => {
         uniforms[name] = gl.getUniformLocation(program, name);
     });
     return { program, uniforms };
@@ -819,9 +832,17 @@ function raycast(state, origin, direction, skip) {
         if (!node.inverse) return;
         const o = transformPoint(node.inverse, origin);
         const d = transformDirection(node.inverse, direction);
+        // Bidang potong di ruang lokal node: n.(A p + t) + w = (A^T n).p + (n.t + w).
+        let plane = null;
+        if (state.clip) {
+            const [nx, ny, nz, w] = state.clip.plane;
+            const m = node.world;
+            plane = [m[0] * nx + m[1] * ny + m[2] * nz, m[4] * nx + m[5] * ny + m[6] * nz, m[8] * nx + m[9] * ny + m[10] * nz,
+                m[12] * nx + m[13] * ny + m[14] * nz + w];
+        }
         node.primitives.forEach(primitive => {
             if (primitive.mode !== 4 || !hitsBox(o, d, primitive.bounds, best ? best.t : Infinity)) return;
-            const t = hitTriangles(o, d, primitive, best ? best.t : Infinity);
+            const t = hitTriangles(o, d, primitive, best ? best.t : Infinity, plane);
             if (t !== null) best = { node, t };
         });
     });
@@ -849,7 +870,7 @@ function hitsBox(o, d, box, maxT) {
 }
 
 // Moller-Trumbore. Kedua sisi segitiga dihitung, jadi permukaan dua sisi juga bisa diklik.
-function hitTriangles(o, d, primitive, maxT) {
+function hitTriangles(o, d, primitive, maxT, plane) {
     const p = primitive.positions;
     const indices = primitive.indices;
     let best = null;
@@ -868,7 +889,10 @@ function hitTriangles(o, d, primitive, maxT) {
         const v = (d[0] * qx + d[1] * qy + d[2] * qz) * inv;
         if (v < 0 || u + v > 1) continue;
         const t = (e2x * qx + e2y * qy + e2z * qz) * inv;
-        if (t > 1e-9 && t < maxT && (best === null || t < best)) best = t;
+        if (t <= 1e-9 || t >= maxT || (best !== null && t >= best)) continue;
+        // Titik yang terpotong tidak terlihat, jadi tidak bisa diklik.
+        if (plane && plane[0] * (o[0] + d[0] * t) + plane[1] * (o[1] + d[1] * t) + plane[2] * (o[2] + d[2] * t) + plane[3] > 0) continue;
+        best = t;
     }
     return best;
 }
@@ -907,6 +931,11 @@ function render(state) {
         // Lampu dari kiri atas di depan model, ikut berputar dengan kamera.
         gl.uniform3fv(uniforms.uLight, normalize(add(add(scale(camera.up, 0.8), scale(camera.right, -0.45)), scale(camera.forward, -0.6))));
         gl.uniform1i(uniforms.uTexture, 0);
+        gl.uniform1f(uniforms.uClipOn, state.clip ? 1 : 0);
+        if (state.clip) {
+            gl.uniform4fv(uniforms.uClip, state.clip.plane);
+            gl.uniform4fv(uniforms.uCap, state.clip.cap || [0, 0, 0, 0]);
+        }
 
         const opaque = [];
         const blended = [];
@@ -966,7 +995,7 @@ function drawPrimitive(state, item) {
     gl.uniform1f(uniforms.uAlphaMode, blend ? 2 : !color && material.alphaMode === "MASK" ? 1 : 0);
     gl.uniform1f(uniforms.uAlphaCutoff, material.alphaCutoff);
     gl.uniform1f(uniforms.uHighlight, item.highlight ? 1 : 0);
-    if (material.doubleSided || blend) gl.disable(gl.CULL_FACE);
+    if (material.doubleSided || blend || state.clip) gl.disable(gl.CULL_FACE);
     else gl.enable(gl.CULL_FACE);
     // Skala negatif membalik urutan titik segitiga.
     gl.frontFace(node.flipped ? gl.CW : gl.CCW);
@@ -1329,6 +1358,7 @@ export function createViewer(id, options = {}) {
         fov: toRadians(Number.isFinite(options.fov) ? options.fov : 45),
         controls: options.controls !== false,
         highlight: new Set(),
+        clip: null,
         renderHandlers: [],
         clickHandlers: [],
         renderFrame: 0,
@@ -1401,6 +1431,21 @@ export function createViewer(id, options = {}) {
         setTransform: (node, transform) => setTransform(state, node, transform),
         getModel: () => state.model,
         setControls: enabled => { state.controls = enabled !== false; },
+        // Bidang potong dunia [nx, ny, nz, w]: titik p dibuang kalau n.p + w > 0. cap = warna
+        // linear [r, g, b, 1] permukaan potongnya, atau null = warna bagian itu digelapkan.
+        setClip: (plane, cap) => {
+            state.clip = plane ? { plane: Float32Array.from(plane), cap: cap ? Float32Array.from(cap) : null } : null;
+            requestRender(state);
+        },
+        // Accessor glTF ke-index sebagai { array, size, componentType, normalized, count }.
+        readAccessor: index => readAccessor(state.model.source, index),
+        // Setelah translation/rotation/scale node diubah langsung (animasi): hitung ulang.
+        update: () => {
+            if (!state.model) return;
+            state.model.dirty = true;
+            requestRender(state);
+        },
+        parseColor,
         math: { add, subtract, scale, dot, cross, length, normalize, transformPoint, transformDirection, invert, multiply }
     };
 

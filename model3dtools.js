@@ -1,6 +1,7 @@
 // Modul tambahan untuk model3d.js: label HTML yang menempel di titik 3D (hotspot), gizmo
-// untuk menggeser/memutar/menskala sebuah bagian dengan mouse atau jari, dan ekspor model
-// yang sudah diubah ke file .glb baru.
+// untuk menggeser/memutar/menskala sebuah bagian dengan mouse atau jari, pemutar animasi
+// glTF, tampilan meledak (exploded view), potongan melintang, dan ekspor model yang sudah
+// diubah ke file .glb baru.
 // Sengaja tidak mengimpor model3d.js - penampilnya dijangkau lewat antarmuka yang dititipkan
 // createViewer() di elemennya (element.crootjs3d), supaya model3d.js tidak termuat dua kali.
 
@@ -10,7 +11,14 @@ const AXIS_NAMES = ["x", "y", "z"];
 const ROTATE_SNAP = 15;      // derajat, saat Shift ditahan
 const OCCLUSION_DELAY = 120; // ms setelah kamera diam sebelum hotspot di belakang model diredupkan
 
-const gizmos = new WeakMap(); // antarmuka penampil -> gizmo yang sedang aktif (satu per penampil)
+const EXPLODE_DURATION = 450; // ms animasi explodeModel
+
+const gizmos = new WeakMap();   // antarmuka penampil -> gizmo yang sedang aktif (satu per penampil)
+const explosions = new WeakMap(); // antarmuka penampil -> keadaan tampilan meledak
+const sections = new WeakMap();   // antarmuka penampil -> potongan melintang yang aktif
+
+// Atribut bilangan bulat "normalized" (animasi terkuantisasi) dibaca sebagai pecahan.
+const NORMALIZE = { 5120: v => Math.max(v / 127, -1), 5121: v => v / 255, 5122: v => Math.max(v / 32767, -1), 5123: v => v / 65535 };
 
 function injectStyles() {
     if (document.getElementById("crootjs-model3dtools-style")) return;
@@ -174,6 +182,12 @@ export function addHotspot(id, anchor, content, options = {}) {
         const point = world ? viewer.toScreen(world) : null;
         if (!point) {
             element.hidden = true;
+            return;
+        }
+        const section = sections.get(viewer);
+        const plane = section && section.plane;
+        if (plane && plane[0] * world[0] + plane[1] * world[1] + plane[2] * world[2] + plane[3] > 0) {
+            element.hidden = true; // titiknya ikut terpotong
             return;
         }
         element.hidden = false;
@@ -432,6 +446,338 @@ export function enableTransform(id, name, mode = "translate", onChange) {
     };
     gizmos.set(viewer, gizmo);
     return gizmo;
+}
+
+// ---- Animasi glTF
+
+function floats(accessor) {
+    if (accessor.array instanceof Float32Array) return accessor.array;
+    const convert = accessor.normalized ? NORMALIZE[accessor.componentType] : value => value;
+    return Float32Array.from(accessor.array, convert);
+}
+
+// Animasi ke-index -> { name, duration, tracks: [{ node, path, times, values, size, interpolation }] }.
+// Hanya translation/rotation/scale node; animasi morph (weights) dilewati.
+function readAnimation(viewer, model, index) {
+    const definition = model.source.json.animations[index];
+    const tracks = [];
+    (definition.channels || []).forEach(channel => {
+        const target = channel.target || {};
+        const node = model.nodes[target.node];
+        const sampler = definition.samplers[channel.sampler];
+        if (!node || !sampler || !["translation", "rotation", "scale"].includes(target.path)) return;
+        const times = floats(viewer.readAccessor(sampler.input));
+        const values = floats(viewer.readAccessor(sampler.output));
+        tracks.push({ node, path: target.path, times, values, size: target.path === "rotation" ? 4 : 3, interpolation: sampler.interpolation || "LINEAR" });
+    });
+    const duration = tracks.reduce((max, track) => Math.max(max, track.times[track.times.length - 1] || 0), 0);
+    return { name: definition.name || "animasi" + index, duration, tracks };
+}
+
+function normalizeQuaternion(q) {
+    const l = Math.hypot(q[0], q[1], q[2], q[3]) || 1;
+    return q.map(value => value / l);
+}
+
+function slerp(a, b, t) {
+    let cos = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+    const sign = cos < 0 ? -1 : 1; // lewat jalur terpendek
+    cos *= sign;
+    if (cos > 0.9995) return normalizeQuaternion(a.map((value, k) => value + (b[k] * sign - value) * t));
+    const angle = Math.acos(cos);
+    const wa = Math.sin((1 - t) * angle) / Math.sin(angle);
+    const wb = Math.sin(t * angle) / Math.sin(angle) * sign;
+    return a.map((value, k) => value * wa + b[k] * wb);
+}
+
+// Nilai satu track pada detik ke-time: STEP, LINEAR (slerp untuk rotasi), atau CUBICSPLINE.
+function sampleTrack(track, time) {
+    const { times, values, size } = track;
+    const last = times.length - 1;
+    const cubic = track.interpolation === "CUBICSPLINE";
+    const stride = cubic ? size * 3 : size;
+    const valueAt = k => Array.from(values.subarray(k * stride + (cubic ? size : 0), k * stride + (cubic ? size : 0) + size));
+    if (time <= times[0] || last === 0) return valueAt(0);
+    if (time >= times[last]) return valueAt(last);
+    let low = 0;
+    let high = last;
+    while (high - low > 1) {
+        const middle = (low + high) >> 1;
+        if (times[middle] <= time) low = middle;
+        else high = middle;
+    }
+    const span = times[high] - times[low];
+    const t = span > 0 ? (time - times[low]) / span : 0;
+    if (track.interpolation === "STEP") return valueAt(low);
+    if (!cubic) {
+        const a = valueAt(low);
+        const b = valueAt(high);
+        return size === 4 ? slerp(a, b, t) : a.map((value, k) => value + (b[k] - value) * t);
+    }
+    // Hermite: [tangen masuk, nilai, tangen keluar] per keyframe (spesifikasi glTF, lampiran C).
+    const t2 = t * t;
+    const t3 = t2 * t;
+    const result = [];
+    for (let k = 0; k < size; k++) {
+        const p0 = values[low * stride + size + k];
+        const m0 = values[low * stride + size * 2 + k] * span;
+        const p1 = values[high * stride + size + k];
+        const m1 = values[high * stride + k] * span;
+        result.push((2 * t3 - 3 * t2 + 1) * p0 + (t3 - 2 * t2 + t) * m0 + (-2 * t3 + 3 * t2) * p1 + (t3 - t2) * m1);
+    }
+    return size === 4 ? normalizeQuaternion(result) : result;
+}
+
+// Daftar animasi di model: [{ index, name, duration }] (duration dalam detik).
+export function getAnimations(id) {
+    const viewer = viewerOf(id);
+    const model = viewer ? viewer.getModel() : null;
+    if (!model) return [];
+    return (model.source.json.animations || []).map((definition, index) => {
+        const animation = readAnimation(viewer, model, index);
+        return { index, name: animation.name, duration: animation.duration };
+    });
+}
+
+// Memutar animasi yang tersimpan di file glTF. animation: nama atau nomor urut (bawaan 0).
+// options (semua opsional):
+//   loop      false = berhenti di akhir. Bawaan true.
+//   speed     kecepatan, 1 = normal, 0.5 = setengah.
+//   autoplay  false = siap tapi belum jalan.
+//   onUpdate  function (time, duration) setiap frame, misalnya untuk menggerakkan slider.
+//   onEnd     function () saat selesai (hanya kalau loop: false).
+// Mengembalikan { play(), pause(), stop(), seek(seconds), setSpeed(speed), isPlaying(),
+// time(), duration } - stop() mengembalikan bagian-bagiannya ke posisi semula.
+export function playAnimation(id, animation = 0, options = {}) {
+    const viewer = viewerOf(id);
+    const none = { play() {}, pause() {}, stop() {}, seek() {}, setSpeed() {}, isPlaying: () => false, time: () => 0, duration: 0 };
+    const model = viewer ? viewer.getModel() : null;
+    if (!model) {
+        if (viewer) console.warn("Belum ada model. Panggil playAnimation di dalam responseFunction loadModel.");
+        return none;
+    }
+    const definitions = model.source.json.animations || [];
+    const index = typeof animation === "number" ? animation : definitions.findIndex(item => item.name === animation);
+    if (!definitions[index]) {
+        console.warn(`Animasi "${animation}" tidak ada di model. ${definitions.length ? "Yang ada: " + definitions.map((item, k) => item.name || k).join(", ") : "Model ini tidak punya animasi."}`);
+        return none;
+    }
+    const clip = readAnimation(viewer, model, index);
+    // Pose awal bagian-bagian yang dianimasikan, untuk stop().
+    const rest = new Map();
+    clip.tracks.forEach(track => {
+        if (!rest.has(track.node)) rest.set(track.node, { translation: track.node.translation.slice(), rotation: track.node.rotation.slice(), scale: track.node.scale.slice() });
+    });
+    let time = 0;
+    let speed = Number.isFinite(options.speed) ? options.speed : 1;
+    let frame = 0;
+    let last = 0;
+    const loop = options.loop !== false;
+
+    const apply = () => {
+        clip.tracks.forEach(track => { track.node[track.path] = sampleTrack(track, time); });
+        viewer.update();
+        if (typeof options.onUpdate === "function") options.onUpdate(time, clip.duration);
+    };
+    const step = now => {
+        time += (now - last) / 1000 * speed;
+        last = now;
+        let ended = false;
+        if (clip.duration > 0 && (time > clip.duration || time < 0)) {
+            if (loop) time = ((time % clip.duration) + clip.duration) % clip.duration;
+            else {
+                time = Math.min(Math.max(time, 0), clip.duration);
+                ended = true;
+            }
+        }
+        apply();
+        if (ended) {
+            frame = 0;
+            if (typeof options.onEnd === "function") options.onEnd();
+            return;
+        }
+        frame = requestAnimationFrame(step);
+    };
+    const controller = {
+        duration: clip.duration,
+        play() {
+            if (frame) return;
+            if (!loop && time >= clip.duration) time = 0;
+            last = performance.now();
+            frame = requestAnimationFrame(step);
+        },
+        pause() {
+            cancelAnimationFrame(frame);
+            frame = 0;
+        },
+        stop() {
+            controller.pause();
+            time = 0;
+            rest.forEach((pose, node) => Object.assign(node, { translation: pose.translation.slice(), rotation: pose.rotation.slice(), scale: pose.scale.slice() }));
+            viewer.update();
+        },
+        seek(seconds) {
+            time = Math.min(Math.max(Number(seconds) || 0, 0), clip.duration);
+            apply();
+        },
+        setSpeed(value) {
+            if (Number.isFinite(value)) speed = value;
+        },
+        isPlaying: () => frame !== 0,
+        time: () => time
+    };
+    const stopModel = viewer.onModel(() => {
+        controller.pause();
+        stopModel();
+    });
+    apply();
+    if (options.autoplay !== false) controller.play();
+    return controller;
+}
+
+// ---- Tampilan meledak
+
+// Bagian-bagian yang dipisahkan: anak dari bagian part, atau - tanpa part - anak dari node
+// pertama (dari atas) yang bercabang.
+function explodePieces(viewer, model, part) {
+    if (part) {
+        const node = viewer.findParts(part)[0];
+        if (!node) console.warn(`Bagian "${part}" tidak ada di model.`);
+        return node ? node.children : [];
+    }
+    let pieces = model.roots;
+    while (pieces.length === 1 && pieces[0].children.length) pieces = pieces[0].children;
+    return pieces;
+}
+
+// Memisahkan bagian-bagian model menjauh dari pusatnya, seperti gambar perakitan.
+// amount: 0 = rapat (posisi semula), 1 = terpisah penuh; nilai di antaranya boleh, misalnya
+// dari slider. options (semua opsional):
+//   part      nama bagian yang anak-anaknya dipisahkan. Bawaan: tingkat pertama yang bercabang.
+//   distance  pengali jarak. Bawaan 1: pada amount 1, jarak tiap bagian dari pusat jadi 2x.
+//   animate   false = langsung, tanpa animasi (pakai ini untuk nilai dari slider).
+export function explodeModel(id, amount, options = {}) {
+    const viewer = viewerOf(id);
+    const model = viewer ? viewer.getModel() : null;
+    if (!model) return;
+    const { subtract, scale, invert, transformDirection, add } = viewer.math;
+    let state = explosions.get(viewer);
+    const part = options.part || null;
+    if (state && (state.model !== model || state.part !== part)) {
+        // Model diganti atau kelompoknya lain: kembalikan dulu yang lama.
+        if (state.model === model) state.pieces.forEach(piece => { piece.node.translation = piece.rest.slice(); });
+        cancelAnimationFrame(state.frame);
+        state = null;
+    }
+    if (!state) {
+        const nodes = explodePieces(viewer, model, part).filter(viewer.isShown);
+        const whole = viewer.boundsOf(nodes);
+        if (!whole || nodes.length < 2) return;
+        state = { model, part, amount: 0, frame: 0, distance: 1, pieces: [] };
+        nodes.forEach(node => {
+            const bounds = viewer.boundsOf([node]);
+            if (!bounds) return;
+            const direction = subtract(bounds.center, whole.center);
+            // Geseran dunia diubah ke ruang induknya, supaya translation lokalnya yang diubah.
+            const inverse = node.parent ? invert(node.parent.world) : null;
+            const local = inverse ? transformDirection(inverse, direction) : direction;
+            state.pieces.push({ node, rest: node.translation.slice(), local });
+        });
+        explosions.set(viewer, state);
+    }
+    cancelAnimationFrame(state.frame);
+    state.distance = Number.isFinite(options.distance) ? options.distance : state.distance;
+    const target = Math.max(0, Number(amount) || 0);
+    const apply = value => {
+        state.amount = value;
+        state.pieces.forEach(piece => { piece.node.translation = add(piece.rest, scale(piece.local, value * state.distance)); });
+        viewer.update();
+    };
+    // Rapat lagi: posisi saat itu menjadi acuan berikutnya (misalnya setelah digeser gizmo).
+    const finish = () => {
+        if (target === 0 && explosions.get(viewer) === state) explosions.delete(viewer);
+    };
+    if (options.animate === false || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        apply(target);
+        finish();
+        return;
+    }
+    const from = state.amount;
+    const start = performance.now();
+    const step = now => {
+        const t = Math.min((now - start) / EXPLODE_DURATION, 1);
+        apply(from + (target - from) * t * (2 - t));
+        state.frame = t < 1 ? requestAnimationFrame(step) : 0;
+        if (t >= 1) finish();
+    };
+    state.frame = requestAnimationFrame(step);
+}
+
+// ---- Potongan melintang
+
+const AXES = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] };
+
+// Memotong model dengan sebuah bidang untuk melihat bagian dalamnya. Sisi yang terpotong
+// tidak digambar dan tidak bisa diklik; permukaan potongnya diwarnai rata.
+// options (semua opsional):
+//   axis      "x" (bawaan: bidang tegak, membelah kiri-kanan), "y" (mendatar), atau "z";
+//             atau normal [x, y, z] untuk bidang miring.
+//   position  letak bidang di sepanjang sumbu itu: 0 = ujung bawah model, 1 = ujung atas.
+//             Bawaan 0.5 (tengah).
+//   flip      true = buang sisi sebaliknya.
+//   color     warna CSS permukaan potong. Bawaan: warna bagian itu, digelapkan.
+// Hanya satu potongan per penampil. Mengembalikan { set(options), remove() } - set mengubah
+// sebagian opsi, misalnya { position } dari slider.
+export function addSection(id, options = {}) {
+    const viewer = viewerOf(id);
+    const none = { set() {}, remove() {} };
+    if (!viewer) return none;
+    const previous = sections.get(viewer);
+    if (previous) previous.remove();
+    const { normalize, dot } = viewer.math;
+    let settings = Object.assign({ axis: "x", position: 0.5, flip: false, color: null }, options);
+    const section = { plane: null };
+
+    const apply = () => {
+        const model = viewer.getModel();
+        const bounds = model ? viewer.boundsOf(model.roots) : null;
+        if (!bounds) {
+            section.plane = null;
+            viewer.setClip(null);
+            return;
+        }
+        const normal = normalize(Array.isArray(settings.axis) ? settings.axis : AXES[settings.axis] || AXES.x);
+        // Rentang model di sepanjang normal, dari kedelapan sudut kotak pembatasnya.
+        let low = Infinity;
+        let high = -Infinity;
+        for (let corner = 0; corner < 8; corner++) {
+            const value = dot(normal, [corner & 1 ? bounds.max[0] : bounds.min[0], corner & 2 ? bounds.max[1] : bounds.min[1], corner & 4 ? bounds.max[2] : bounds.min[2]]);
+            low = Math.min(low, value);
+            high = Math.max(high, value);
+        }
+        const position = Math.min(Math.max(Number(settings.position), 0), 1);
+        // Sedikit di luar ujungnya pada 0 dan 1, supaya model utuh/hilang total di sana.
+        const offset = low + (high - low) * position + (position === 1 ? 1e-4 : position === 0 ? -1e-4 : 0) * (high - low);
+        const sign = settings.flip ? -1 : 1;
+        section.plane = [normal[0] * sign, normal[1] * sign, normal[2] * sign, -offset * sign];
+        viewer.setClip(section.plane, settings.color ? viewer.parseColor(settings.color) : null);
+    };
+
+    const stopModel = viewer.onModel(apply);
+    section.set = changes => {
+        settings = Object.assign(settings, changes);
+        apply();
+    };
+    section.remove = () => {
+        stopModel();
+        if (sections.get(viewer) === section) {
+            sections.delete(viewer);
+            viewer.setClip(null);
+        }
+    };
+    sections.set(viewer, section);
+    apply();
+    return { set: section.set, remove: section.remove };
 }
 
 // ---- Ekspor GLB
