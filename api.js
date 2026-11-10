@@ -31,7 +31,14 @@ function requestJSON(method, target_url, responseFunction, datajson, tokenkey, t
         requestOptions.body = JSON.stringify(datajson);
     }
 
-    fetch(target_url, requestOptions)
+    // Hasilnya dikirim ke responseFunction (kalau ada) dan juga menjadi isi Promise yang
+    // dikembalikan, jadi bisa dipakai dengan callback maupun await. Promise-nya tidak pernah
+    // reject: kegagalan jaringan juga berupa { status: 0, data: null }.
+    const respond = result => {
+        if (typeof responseFunction === "function") responseFunction(result);
+        return result;
+    };
+    return fetch(target_url, requestOptions)
         .then(response => {
             const status = response.status;
             return response.text().then(result => {
@@ -41,7 +48,7 @@ function requestJSON(method, target_url, responseFunction, datajson, tokenkey, t
                 } catch (parseError) {
                     parsedResult = null;
                 }
-                responseFunction({ status, data: parsedResult });
+                return { status, data: parsedResult };
             });
         })
         .catch(error => {
@@ -50,25 +57,30 @@ function requestJSON(method, target_url, responseFunction, datajson, tokenkey, t
             // dipanggil kalau ini tidak ditangani. status:0 menandakan kegagalan jaringan
             // (bukan status HTTP asli, yang selalu >= 100).
             console.log('error', error);
-            responseFunction({ status: 0, data: null });
+            return { status: 0, data: null };
         })
-        .finally(cancel);
+        .finally(cancel)
+        .then(respond);
 }
 
+// Keempatnya mengembalikan Promise berisi { status, data }, selain memanggil responseFunction.
+// responseFunction boleh null untuk gaya await:
+//   const { status, data } = await getJSON(url);
+//   const result = await postJSON(url, body, null, "login", token);
 export function getJSON(target_url, responseFunction, tokenkey = null, tokenvalue = null) {
-    requestJSON('GET', target_url, responseFunction, undefined, tokenkey, tokenvalue);
+    return requestJSON('GET', target_url, responseFunction, undefined, tokenkey, tokenvalue);
 }
 
 export function postJSON(target_url, datajson, responseFunction, tokenkey = null, tokenvalue = null) {
-    requestJSON('POST', target_url, responseFunction, datajson, tokenkey, tokenvalue);
+    return requestJSON('POST', target_url, responseFunction, datajson, tokenkey, tokenvalue);
 }
 
 export function deleteJSON(target_url, datajson, responseFunction, tokenkey = null, tokenvalue = null) {
-    requestJSON('DELETE', target_url, responseFunction, datajson, tokenkey, tokenvalue);
+    return requestJSON('DELETE', target_url, responseFunction, datajson, tokenkey, tokenvalue);
 }
 
 export function putJSON(target_url, datajson, responseFunction, tokenkey = null, tokenvalue = null) {
-    requestJSON('PUT', target_url, responseFunction, datajson, tokenkey, tokenvalue);
+    return requestJSON('PUT', target_url, responseFunction, datajson, tokenkey, tokenvalue);
 }
 
 // errorFunction (opsional) dipanggil dengan sebuah Error kalau elemen tidak ada,

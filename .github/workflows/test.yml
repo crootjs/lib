@@ -1,0 +1,25 @@
+# Menjalankan tests/index.html di Chromium headless setiap push, pull request, dan tag.
+# Playwright (Python) hanya dipakai untuk menjalankan uji; pengguna CrootJS tetap tanpa npm.
+name: test
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Pasang Playwright dan Chromium
+        run: |
+          pip install playwright==1.48.0
+          python -m playwright install --with-deps chromium
+      - name: Jalankan uji
+        run: python tests/run.py

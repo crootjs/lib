@@ -24,6 +24,22 @@ Projects using CrootJS must keep HTML, CSS, and JS in separate files, and load J
 
 Using an AI coding agent? Drop [`CLAUDE.md`](CLAUDE.md) (in this repo) into your project root — Claude Code picks it up automatically.
 
+## Tests
+
+[`tests/`](tests/) runs the modules in a real browser — no npm. Open it through any local server:
+
+```sh
+python3 -m http.server      # from this folder, then open http://localhost:8000/tests/
+```
+
+or online at https://croot.js.org/lib/tests/. CI runs the same page headless on every push and tag ([`.github/workflows/test.yml`](.github/workflows/test.yml)); to do that locally: `pip install playwright && python -m playwright install chromium && python tests/run.py`.
+
+Changes per version: [CHANGELOG.md](CHANGELOG.md).
+
+## Editor autocomplete
+
+Copy [`crootjs.d.ts`](crootjs.d.ts) into your project (next to a `jsconfig.json`). VS Code then knows every module imported straight from jsDelivr — any version, `.js` or `.min.js` — and shows parameter names, order, and the docs comment of each function. It is generated from the source: `python3 tools/build-types.py`.
+
 ## Release Tag
 ```sh
 git tag                                 #check current version

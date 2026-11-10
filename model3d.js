@@ -724,6 +724,13 @@ async function buildModel(state, source) {
     });
     const scene = json.scenes && json.scenes[json.scene || 0];
     const roots = scene ? (scene.nodes || []).map(index => nodes[index]).filter(Boolean) : nodes.filter(node => !node.parent);
+    // Node yang tidak terjangkau dari scene tidak digambar, jadi juga tidak boleh bisa diklik
+    // atau ikut dihitung.
+    const mark = node => {
+        node.inScene = true;
+        node.children.forEach(mark);
+    };
+    roots.forEach(mark);
     const model = { source, nodes, roots, meshes, textures, dirty: true };
     updateWorld(model);
     return model;
@@ -827,7 +834,7 @@ function raycast(state, origin, direction, skip) {
     if (model.dirty) updateWorld(model);
     let best = null;
     model.nodes.forEach(node => {
-        if (!node.primitives.length || !isShown(node) || (skip && skip(node))) return;
+        if (!node.inScene || !node.primitives.length || !isShown(node) || (skip && skip(node))) return;
         node.inverse = node.inverse || invert(node.world);
         if (!node.inverse) return;
         const o = transformPoint(node.inverse, origin);
@@ -1272,9 +1279,12 @@ function describeModel(state) {
     const model = state.model;
     const bounds = boundsOf(model.roots);
     let triangles = 0;
-    model.nodes.forEach(node => node.primitives.forEach(primitive => {
-        if (primitive.mode === 4) triangles += Math.floor(primitive.count / 3);
-    }));
+    model.nodes.forEach(node => {
+        if (!node.inScene) return;
+        node.primitives.forEach(primitive => {
+            if (primitive.mode === 4) triangles += Math.floor(primitive.count / 3);
+        });
+    });
     return {
         parts: listParts(model).map(part => part.name),
         triangles,
