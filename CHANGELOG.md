@@ -2,6 +2,19 @@
 
 All notable changes to CrootJS. Versions are git tags, served by jsDelivr as `https://cdn.jsdelivr.net/gh/crootjs/lib@<version>/<module>.js`; each is also a [GitHub release](https://github.com/crootjs/lib/releases).
 
+## [0.0.27](https://github.com/crootjs/lib/releases/tag/v0.0.27) - 2026-11-11
+
+**Address search, offline PMTiles maps, 3D models on the map, skinning, Draco, AR, English docs**
+
+- **mapsearch.js (new)** - `searchPlace`, `reverseGeocode` and `addSearchControl`: place and address search with OpenStreetMap's Nominatim (rate-limited to 1 request per second, search on Enter only, OSM attribution under the results) or your own server/provider.
+- **mapoffline.js (new)** - `openPMTiles(url | File)`: a basemap from one PMTiles v3 raster file, read with HTTP Range requests from a static host, or from a file on the device with no internet. Checked against the official PMTiles sample.
+- **mapmodel.js (new)** - `addModel`: a glTF/GLB model at its coordinates on the map, true to scale in meters, with heading, pitch, click (8 px tolerance) and a `minZoom`. Re-exports `model3d.js`.
+- **map.js** - `tiles` (and `labels`) also accept an object `{ getTile(z, x, y) }` returning a Blob, URL or null.
+- **model3d.js** - skinning (up to 64 joints per mesh; animations bend skinned meshes; picking and bounds follow the pose) and Draco-compressed models (`KHR_draco_mesh_compression`, decoded by Google's official decoder, downloaded only when needed; `dracoDecoder` option to self-host it).
+- **model3dtools.js** - `addARButton` and `getARLink`: "Lihat di AR" opens Google Scene Viewer on Android, or AR Quick Look on iPhone/iPad when a `.usdz` is given.
+- **Docs in English** at https://croot.js.org/docs/en/, with a language link on every page.
+- **tests/** - 50 tests, including PMTiles, search, map models, skinning and Draco (skipped when the decoder server is unreachable).
+
 ## [0.0.26](https://github.com/crootjs/lib/releases/tag/v0.0.26) - 2026-11-11
 
 **Map drawing, awaitable api.js, tests and type declarations**

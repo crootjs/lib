@@ -14,14 +14,17 @@ const CAMERA_DURATION = 300;              // ms animasi fitView dan klik ganda
 const GLB_MAGIC = 0x46546C67;             // "glTF"
 const CHUNK_JSON = 0x4E4F534A;
 const CHUNK_BIN = 0x004E4942;
-const SUPPORTED_EXTENSIONS = ["KHR_materials_unlit", "KHR_materials_emissive_strength", "KHR_mesh_quantization"];
+const SUPPORTED_EXTENSIONS = ["KHR_materials_unlit", "KHR_materials_emissive_strength", "KHR_mesh_quantization", "KHR_draco_mesh_compression"];
+// Dekoder Draco resmi (WebAssembly, sekitar 300 KB) hanya diunduh kalau modelnya memakai Draco.
+const DRACO_DECODER = "https://www.gstatic.com/draco/versioned/decoders/1.5.7/";
+const MAX_JOINTS = 64; // tulang per mesh untuk skinning (dikurangi lagi kalau GPU-nya kecil)
 const COMPONENTS = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT2: 4, MAT3: 9, MAT4: 16 };
 const ARRAY_TYPES = { 5120: Int8Array, 5121: Uint8Array, 5122: Int16Array, 5123: Uint16Array, 5125: Uint32Array, 5126: Float32Array };
 const DATA_GETTERS = { 5120: "getInt8", 5121: "getUint8", 5122: "getInt16", 5123: "getUint16", 5125: "getUint32", 5126: "getFloat32" };
 // Atribut bilangan bulat yang "normalized" dibaca sebagai pecahan (spesifikasi glTF 3.11).
 const NORMALIZE = { 5120: v => Math.max(v / 127, -1), 5121: v => v / 255, 5122: v => Math.max(v / 32767, -1), 5123: v => v / 65535 };
-const ATTRIBUTES = ["aPosition", "aNormal", "aUV", "aColor"]; // urutan = lokasi atributnya
-const ATTRIBUTE_DEFAULTS = { aNormal: [0, 0, 1, 0], aUV: [0, 0, 0, 0], aColor: [1, 1, 1, 1] };
+const ATTRIBUTES = ["aPosition", "aNormal", "aUV", "aColor", "aJoints", "aWeights"]; // urutan = lokasi atributnya
+const ATTRIBUTE_DEFAULTS = { aNormal: [0, 0, 1, 0], aUV: [0, 0, 0, 0], aColor: [1, 1, 1, 1], aJoints: [0, 0, 0, 0], aWeights: [0, 0, 0, 0] };
 // Material tanpa definisi: abu-abu terang yang tidak mengilap (bawaan spesifikasi, logam penuh,
 // tampak gelap tanpa peta lingkungan).
 const DEFAULT_MATERIAL = { color: [0.8, 0.8, 0.8, 1], texture: null, metallic: 0, roughness: 0.8, emissive: [0, 0, 0], alphaMode: "OPAQUE", alphaCutoff: 0.5, doubleSided: false, unlit: false };
@@ -31,17 +34,30 @@ attribute vec3 aPosition;
 attribute vec3 aNormal;
 attribute vec2 aUV;
 attribute vec4 aColor;
+attribute vec4 aJoints;
+attribute vec4 aWeights;
 uniform mat4 uViewProj;
 uniform mat4 uModel;
 uniform mat3 uNormal;
+uniform float uSkinned;
+uniform mat4 uJoints[MAX_JOINTS];
 varying vec3 vWorld;
 varying vec3 vNormal;
 varying vec2 vUV;
 varying vec4 vColor;
 void main() {
-    vec4 world = uModel * vec4(aPosition, 1.0);
+    vec4 world;
+    if (uSkinned > 0.5) {
+        // Skinning: posisi dunia = rata-rata berbobot dari matriks tulang-tulangnya.
+        mat4 skin = aWeights.x * uJoints[int(aJoints.x)] + aWeights.y * uJoints[int(aJoints.y)]
+            + aWeights.z * uJoints[int(aJoints.z)] + aWeights.w * uJoints[int(aJoints.w)];
+        world = skin * vec4(aPosition, 1.0);
+        vNormal = (skin * vec4(aNormal, 0.0)).xyz;
+    } else {
+        world = uModel * vec4(aPosition, 1.0);
+        vNormal = uNormal * aNormal;
+    }
     vWorld = world.xyz;
-    vNormal = uNormal * aNormal;
     vUV = aUV;
     vColor = aColor;
     gl_PointSize = 4.0;
@@ -405,7 +421,7 @@ async function parseModel(data, base) {
     if (!json || !json.asset || String(json.asset.version)[0] !== "2") throw new Error("bukan glTF 2.0");
     const unsupported = (json.extensionsRequired || []).filter(name => !SUPPORTED_EXTENSIONS.includes(name));
     if (unsupported.length) {
-        throw new Error(`model memakai ${unsupported.join(", ")} yang belum didukung. Ekspor ulang tanpa kompresi Draco/meshopt`);
+        throw new Error(`model memakai ${unsupported.join(", ")} yang belum didukung. Ekspor ulang tanpa kompresi meshopt`);
     }
 
     const buffers = await Promise.all((json.buffers || []).map((buffer, index) => {
@@ -545,10 +561,11 @@ function toES3(source, fragment) {
     return result;
 }
 
-function createProgram(gl, webgl2) {
+function createProgram(gl, webgl2, maxJoints) {
     const compile = (type, source) => {
         const shader = gl.createShader(type);
-        gl.shaderSource(shader, webgl2 ? toES3(source, type === gl.FRAGMENT_SHADER) : source);
+        const code = type === gl.VERTEX_SHADER ? `#define MAX_JOINTS ${maxJoints}\n` + source : source;
+        gl.shaderSource(shader, webgl2 ? toES3(code, type === gl.FRAGMENT_SHADER) : code);
         gl.compileShader(shader);
         if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(shader));
         return shader;
@@ -561,7 +578,7 @@ function createProgram(gl, webgl2) {
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program));
     const uniforms = {};
     ["uViewProj", "uModel", "uNormal", "uColor", "uTexture", "uUseTexture", "uEmissive", "uEye", "uLight",
-        "uMetallic", "uRoughness", "uLit", "uAlphaMode", "uAlphaCutoff", "uHighlight", "uClip", "uClipOn", "uCap"].forEach(name => {
+        "uMetallic", "uRoughness", "uLit", "uAlphaMode", "uAlphaCutoff", "uHighlight", "uClip", "uClipOn", "uCap", "uSkinned", "uJoints"].forEach(name => {
         uniforms[name] = gl.getUniformLocation(program, name);
     });
     return { program, uniforms };
@@ -611,6 +628,17 @@ function buildPrimitive(state, primitive, read, materials) {
     }
     if (attributes.TEXCOORD_0 !== undefined) attribute("aUV", read(attributes.TEXCOORD_0));
     if (attributes.COLOR_0 !== undefined) attribute("aColor", read(attributes.COLOR_0));
+    // Tulang dan bobotnya; disimpan juga di CPU untuk klik dan kotak pembatas yang ikut bergerak.
+    let joints = null;
+    let weights = null;
+    if (attributes.JOINTS_0 !== undefined && attributes.WEIGHTS_0 !== undefined) {
+        const jointAccessor = read(attributes.JOINTS_0);
+        const weightAccessor = read(attributes.WEIGHTS_0);
+        attribute("aJoints", jointAccessor);
+        attribute("aWeights", weightAccessor);
+        joints = jointAccessor.array;
+        weights = toFloat(weightAccessor);
+    }
 
     const min = [Infinity, Infinity, Infinity];
     const max = [-Infinity, -Infinity, -Infinity];
@@ -629,6 +657,8 @@ function buildPrimitive(state, primitive, read, materials) {
         indexType: indices instanceof Uint32Array ? gl.UNSIGNED_INT : indices instanceof Uint8Array ? gl.UNSIGNED_BYTE : gl.UNSIGNED_SHORT,
         positions,
         indices,
+        joints,
+        weights,
         bounds: { min, max },
         material: primitive.material === undefined ? DEFAULT_MATERIAL : materials[primitive.material] || DEFAULT_MATERIAL
     };
@@ -675,9 +705,87 @@ async function createTexture(state, image, sampler = {}) {
     return texture;
 }
 
+// Memuat dekoder Draco resmi sekali per halaman. base = folder berisi
+// draco_wasm_wrapper_gltf.js dan draco_decoder_gltf.wasm.
+const dracoModules = new Map();
+function loadDraco(base) {
+    if (!dracoModules.has(base)) {
+        dracoModules.set(base, new Promise((resolve, reject) => {
+            const start = () => Promise.resolve(window.DracoDecoderModule({ locateFile: file => base + file })).then(resolve, reject);
+            if (typeof window.DracoDecoderModule === "function") return start();
+            const script = document.createElement("script");
+            script.src = base + "draco_wasm_wrapper_gltf.js";
+            script.onload = start;
+            script.onerror = () => reject(new Error(`dekoder Draco tidak bisa diunduh dari ${base}`));
+            document.head.appendChild(script);
+        }));
+    }
+    return dracoModules.get(base);
+}
+
+const DRACO_TYPES = {
+    5120: ["DT_INT8", Int8Array, "HEAP8"], 5121: ["DT_UINT8", Uint8Array, "HEAPU8"],
+    5122: ["DT_INT16", Int16Array, "HEAP16"], 5123: ["DT_UINT16", Uint16Array, "HEAPU16"],
+    5125: ["DT_UINT32", Uint32Array, "HEAPU32"], 5126: ["DT_FLOAT32", Float32Array, "HEAPF32"]
+};
+
+// Satu primitive KHR_draco_mesh_compression -> accessor-accessor hasil uraian, dengan nomor
+// accessor glTF-nya sebagai kunci (atribut memakai tipe yang tertulis di accessor-nya).
+function decodeDraco(draco, source, primitive) {
+    const { json, buffers } = source;
+    const extension = primitive.extensions.KHR_draco_mesh_compression;
+    const view = json.bufferViews[extension.bufferView];
+    const bytes = new Int8Array(buffers[view.buffer], view.byteOffset || 0, view.byteLength);
+    const decoder = new draco.Decoder();
+    const mesh = new draco.Mesh();
+    const decoded = new Map();
+    try {
+        const status = decoder.DecodeArrayToMesh(bytes, bytes.byteLength, mesh);
+        if (!status.ok() || mesh.ptr === 0) throw new Error("Draco: " + status.error_msg());
+        const take = (componentType, count, fill) => {
+            const [type, ArrayType, heap] = DRACO_TYPES[componentType];
+            const byteLength = count * ArrayType.BYTES_PER_ELEMENT;
+            const pointer = draco._malloc(byteLength);
+            try {
+                fill(draco[type], byteLength, pointer);
+                return new ArrayType(draco[heap].buffer, pointer, count).slice();
+            } finally {
+                draco._free(pointer);
+            }
+        };
+        if (primitive.indices !== undefined) {
+            const count = mesh.num_faces() * 3;
+            const array = take(5125, count, (type, byteLength, pointer) => decoder.GetTrianglesUInt32Array(mesh, byteLength, pointer));
+            decoded.set(primitive.indices, { array, size: 1, componentType: 5125, normalized: false, count });
+        }
+        Object.entries(extension.attributes).forEach(([semantic, uniqueId]) => {
+            const index = primitive.attributes[semantic];
+            if (index === undefined) return;
+            const accessor = json.accessors[index];
+            const attribute = decoder.GetAttributeByUniqueId(mesh, uniqueId);
+            const size = attribute.num_components();
+            const count = mesh.num_points();
+            const componentType = DRACO_TYPES[accessor.componentType] ? accessor.componentType : 5126;
+            const array = take(componentType, count * size, (type, byteLength, pointer) => decoder.GetAttributeDataArrayForAllPoints(mesh, attribute, type, byteLength, pointer));
+            decoded.set(index, { array, size, componentType, normalized: Boolean(accessor.normalized), count });
+        });
+    } finally {
+        draco.destroy(mesh);
+        draco.destroy(decoder);
+    }
+    return decoded;
+}
+
 async function buildModel(state, source) {
     const { json } = source;
     const cache = new Map();
+    // Data Draco diurai lebih dulu; accessor-nya tidak punya bufferView sendiri.
+    const compressed = (json.meshes || []).flatMap(mesh => mesh.primitives || [])
+        .filter(primitive => primitive.extensions && primitive.extensions.KHR_draco_mesh_compression);
+    if (compressed.length) {
+        const draco = await loadDraco(state.dracoDecoder);
+        compressed.forEach(primitive => decodeDraco(draco, source, primitive).forEach((accessor, index) => cache.set(index, accessor)));
+    }
     const read = index => {
         if (!cache.has(index)) cache.set(index, readAccessor(source, index));
         return cache.get(index);
@@ -722,6 +830,21 @@ async function buildModel(state, source) {
         node.children = node.childIndices.map(index => nodes[index]).filter(Boolean);
         node.children.forEach(child => { child.parent = node; });
     });
+    // Skin: tulang-tulang (node) dan matriks invers posisi ikatnya.
+    (json.nodes || []).forEach((definition, index) => {
+        const skin = definition.skin === undefined ? null : (json.skins || [])[definition.skin];
+        if (!skin || !nodes[index].primitives.some(primitive => primitive.joints)) return;
+        if (skin.joints.length > state.maxJoints) {
+            console.warn(`Mesh "${nodes[index].name}" memakai ${skin.joints.length} tulang; GPU ini hanya mendukung ${state.maxJoints}, jadi ditampilkan dalam pose diam.`);
+            return;
+        }
+        const inverse = skin.inverseBindMatrices === undefined ? null : toFloat(read(skin.inverseBindMatrices));
+        nodes[index].skin = {
+            joints: skin.joints.map(joint => nodes[joint]),
+            inverseBind: skin.joints.map((joint, j) => inverse ? inverse.subarray(j * 16, j * 16 + 16) : identity()),
+            matrices: new Float32Array(skin.joints.length * 16)
+        };
+    });
     const scene = json.scenes && json.scenes[json.scene || 0];
     const roots = scene ? (scene.nodes || []).map(index => nodes[index]).filter(Boolean) : nodes.filter(node => !node.parent);
     // Node yang tidak terjangkau dari scene tidak digambar, jadi juga tidak boleh bisa diklik
@@ -756,8 +879,50 @@ function updateWorld(model) {
         node.children.forEach(child => visit(child, node.world));
     };
     model.roots.forEach(root => visit(root, null));
+    // Matriks tulang = posisi dunia tulang x invers posisi ikatnya; vertex skin langsung ke dunia.
+    model.nodes.forEach(node => {
+        if (!node.skin) return;
+        node.skin.joints.forEach((joint, j) => node.skin.matrices.set(multiply(joint.world, node.skin.inverseBind[j]), j * 16));
+        node.skin.cache = null;
+    });
     model.dirty = false;
 }
+
+// Posisi dunia vertex mesh ber-skin (dihitung di CPU untuk klik dan kotak pembatas), disimpan
+// sampai tulangnya bergerak lagi.
+function skinnedPositions(node, primitive) {
+    node.skin.cache = node.skin.cache || new Map();
+    if (node.skin.cache.has(primitive)) return node.skin.cache.get(primitive);
+    const { positions, joints, weights } = primitive;
+    const matrices = node.skin.matrices;
+    const out = new Float32Array(positions.length);
+    const min = [Infinity, Infinity, Infinity];
+    const max = [-Infinity, -Infinity, -Infinity];
+    for (let v = 0; v < positions.length / 3; v++) {
+        const x = positions[v * 3], y = positions[v * 3 + 1], z = positions[v * 3 + 2];
+        let ox = 0, oy = 0, oz = 0;
+        for (let k = 0; k < 4; k++) {
+            const w = weights[v * 4 + k];
+            if (!w) continue;
+            const m = joints[v * 4 + k] * 16;
+            ox += w * (matrices[m] * x + matrices[m + 4] * y + matrices[m + 8] * z + matrices[m + 12]);
+            oy += w * (matrices[m + 1] * x + matrices[m + 5] * y + matrices[m + 9] * z + matrices[m + 13]);
+            oz += w * (matrices[m + 2] * x + matrices[m + 6] * y + matrices[m + 10] * z + matrices[m + 14]);
+        }
+        out[v * 3] = ox;
+        out[v * 3 + 1] = oy;
+        out[v * 3 + 2] = oz;
+        [ox, oy, oz].forEach((value, k) => {
+            if (value < min[k]) min[k] = value;
+            if (value > max[k]) max[k] = value;
+        });
+    }
+    const result = { positions: out, indices: primitive.indices, count: primitive.count, mode: primitive.mode, bounds: { min, max } };
+    node.skin.cache.set(primitive, result);
+    return result;
+}
+
+const isSkinned = (node, primitive) => Boolean(node.skin && primitive.joints);
 
 // Kotak pembatas (dunia) dari node-node yang tampil beserta turunannya.
 function boundsOf(nodes) {
@@ -766,6 +931,14 @@ function boundsOf(nodes) {
     const visit = node => {
         if (!node.visible) return;
         node.primitives.forEach(primitive => {
+            if (isSkinned(node, primitive)) {
+                const { min: a, max: b } = skinnedPositions(node, primitive).bounds;
+                for (let k = 0; k < 3; k++) {
+                    min[k] = Math.min(min[k], a[k]);
+                    max[k] = Math.max(max[k], b[k]);
+                }
+                return;
+            }
             const { min: a, max: b } = primitive.bounds;
             for (let corner = 0; corner < 8; corner++) {
                 const p = transformPoint(node.world, [corner & 1 ? b[0] : a[0], corner & 2 ? b[1] : a[1], corner & 4 ? b[2] : a[2]]);
@@ -848,8 +1021,14 @@ function raycast(state, origin, direction, skip) {
                 m[12] * nx + m[13] * ny + m[14] * nz + w];
         }
         node.primitives.forEach(primitive => {
-            if (primitive.mode !== 4 || !hitsBox(o, d, primitive.bounds, best ? best.t : Infinity)) return;
-            const t = hitTriangles(o, d, primitive, best ? best.t : Infinity, plane);
+            if (primitive.mode !== 4) return;
+            // Mesh ber-skin dihitung di ruang dunia dari posisi vertex yang sudah digerakkan tulang.
+            const skinned = isSkinned(node, primitive);
+            const shape = skinned ? skinnedPositions(node, primitive) : primitive;
+            const localOrigin = skinned ? origin : o;
+            const localDirection = skinned ? direction : d;
+            if (!hitsBox(localOrigin, localDirection, shape.bounds, best ? best.t : Infinity)) return;
+            const t = hitTriangles(localOrigin, localDirection, shape, best ? best.t : Infinity, skinned && state.clip ? state.clip.plane : plane);
             if (t !== null) best = { node, t };
         });
     });
@@ -986,6 +1165,9 @@ function drawPrimitive(state, item) {
     const material = primitive.material;
     gl.uniformMatrix4fv(uniforms.uModel, false, node.world);
     gl.uniformMatrix3fv(uniforms.uNormal, false, node.normal);
+    const skinned = isSkinned(node, primitive);
+    gl.uniform1f(uniforms.uSkinned, skinned ? 1 : 0);
+    if (skinned) gl.uniformMatrix4fv(uniforms.uJoints, false, node.skin.matrices);
     gl.uniform4fv(uniforms.uColor, color || material.color);
     // Warna yang diganti setPartColor menggantikan teksturnya juga.
     const texture = !color && material.texture !== null ? state.model.textures[material.texture] : null;
@@ -1312,6 +1494,9 @@ function listParts(model) {
 //   fov         sudut pandang vertikal kamera, derajat. Default 45.
 //   controls    false = tanpa orbit/zoom/geser dari pengguna. Default true.
 //   webgl       1 = paksa WebGL1 (untuk menguji cadangan). Default WebGL2, cadangan WebGL1.
+//   dracoDecoder  folder dekoder Draco (draco_wasm_wrapper_gltf.js + draco_decoder_gltf.wasm)
+//               untuk model terkompresi Draco. Default dari www.gstatic.com; isi dengan folder
+//               sendiri kalau aplikasinya harus jalan tanpa server Google.
 export function createViewer(id, options = {}) {
     const container = document.getElementById(id);
     if (!container) {
@@ -1361,6 +1546,7 @@ export function createViewer(id, options = {}) {
         gl: context.gl,
         webgl2: context.webgl2,
         uintIndices: context.webgl2 || Boolean(context.gl.getExtension("OES_element_index_uint")),
+        dracoDecoder: options.dracoDecoder || DRACO_DECODER,
         program: null,
         model: null,
         sphere: null,
@@ -1379,13 +1565,15 @@ export function createViewer(id, options = {}) {
         restorePosition,
         removed: false
     };
-    state.program = createProgram(state.gl, state.webgl2);
+    // Tiap matriks tulang memakai 4 vektor uniform; sisakan 24 untuk uniform lain.
+    state.maxJoints = Math.max(1, Math.min(MAX_JOINTS, Math.floor((state.gl.getParameter(state.gl.MAX_VERTEX_UNIFORM_VECTORS) - 24) / 4)));
+    state.program = createProgram(state.gl, state.webgl2, state.maxJoints);
 
     // Konteks WebGL bisa hilang (GPU di-reset, tab lama di latar belakang): model dibangun
     // ulang dari data yang masih tersimpan begitu konteksnya kembali.
     canvas.addEventListener("webglcontextlost", event => event.preventDefault());
     canvas.addEventListener("webglcontextrestored", () => {
-        state.program = createProgram(state.gl, state.webgl2);
+        state.program = createProgram(state.gl, state.webgl2, state.maxJoints);
         const old = state.model;
         if (!old) return requestRender(state);
         buildModel(state, old.source).then(model => {

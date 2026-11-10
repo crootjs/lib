@@ -5,5 +5,7 @@ import "./geo.test.js";
 import "./map.test.js";
 import "./mapdraw.test.js";
 import "./model3d.test.js";
+import "./model3dmore.test.js";
+import "./mapextra.test.js";
 
 run();

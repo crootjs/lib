@@ -637,7 +637,8 @@ function previewImages(basemap, center, zoom) {
     if (basemap.thumbnail) return [basemap.thumbnail];
     const tiles = basemap.tiles === undefined || basemap.tiles === true ? DEFAULT_TILES : basemap.tiles;
     if (!tiles) return [];
-    return [...[].concat(basemap.labels || []), tiles].map(template => previewTile(template, basemap, center, zoom));
+    // Sumber tile berupa object (misalnya PMTiles) tidak punya URL: kartunya butuh thumbnail.
+    return [...[].concat(basemap.labels || []), tiles].filter(template => typeof template === "string").map(template => previewTile(template, basemap, center, zoom));
 }
 
 function fillCard(card, basemap, index, images) {

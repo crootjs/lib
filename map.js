@@ -419,6 +419,33 @@ function tileSource(state, template, z, x, y) {
         .replace(/\{y\}/g, y);
 }
 
+// Mengisi gambar tile dari sumbernya: pola URL (teks), atau object { getTile(z, x, y) } yang
+// mengembalikan Promise berisi Blob, URL, atau null (tidak ada tile) - misalnya file PMTiles
+// dari mapoffline.js. Blob ditampilkan lewat object URL yang dilepas saat tile dihapus.
+function loadTile(state, img, source, z, x, y) {
+    if (typeof source === "string") {
+        img.src = tileSource(state, source, z, x, y);
+        return;
+    }
+    Promise.resolve()
+        .then(() => source.getTile(z, x, y))
+        .then(result => {
+            if (img.crootjsRemoved) return;
+            if (result instanceof Blob) {
+                img.crootjsObjectURL = URL.createObjectURL(result);
+                img.src = img.crootjsObjectURL;
+            } else if (typeof result === "string") {
+                img.src = result;
+            } else if (img.onerror) {
+                img.onerror();
+            }
+        })
+        .catch(error => {
+            console.warn(`Tile ${z}/${x}/${y} gagal dibaca: ${error.message}`);
+            if (!img.crootjsRemoved && img.onerror) img.onerror();
+        });
+}
+
 function tileImage(onload) {
     const img = document.createElement("img");
     img.className = "crootjs-map-tile";
@@ -448,12 +475,12 @@ function addTile(state, z, x, y, key) {
             done();
         }
     };
-    img.src = tileSource(state, state.tileURL, z, x, y);
+    loadTile(state, img, state.tileURL, z, x, y);
     state.tilePane.appendChild(img);
     // Tile label (transparan) menumpang posisi tile dasarnya. Yang gagal dimuat dibiarkan kosong.
     tile.labels = state.labelURLs.map(template => {
         const label = tileImage();
-        label.src = tileSource(state, template, z, x, y);
+        loadTile(state, label, template, z, x, y);
         state.tilePane.appendChild(label);
         return label;
     });
@@ -465,6 +492,8 @@ function removeTile(state, key) {
     [tile.img, ...tile.labels].forEach(img => {
         img.onload = null;
         img.onerror = null;
+        img.crootjsRemoved = true;
+        if (img.crootjsObjectURL) URL.revokeObjectURL(img.crootjsObjectURL);
         img.remove();
     });
     state.tiles.delete(key);
@@ -1455,7 +1484,9 @@ function renderAttribution(state) {
 //   maxZoom     default 19
 //   tiles       pola URL tile raster dengan {z}, {x}, {y}. Boleh juga memakai {s} (subdomain),
 //               {r} ("@2x" di layar retina), dan {-y} (baris skema TMS). Default: OpenStreetMap.
-//               false = tanpa peta dasar, hanya data yang digambar.
+//               false = tanpa peta dasar, hanya data yang digambar. Boleh juga object
+//               { getTile(z, x, y) } yang mengembalikan Promise berisi Blob, URL, atau null,
+//               misalnya file PMTiles dari mapoffline.js.
 //   attribution atribusi untuk `tiles` buatan sendiri: teks, elemen DOM (untuk tautan), atau
 //               array-nya kalau sumbernya lebih dari satu
 //   attributionPrefix  false = tanpa tautan "CrootJS" di depan atribusi

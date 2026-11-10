@@ -17,6 +17,12 @@ export function test(name, run, options = {}) {
 }
 
 class AssertionError extends Error {}
+class SkipError extends Error {}
+
+// Dipanggil di dalam uji untuk melewatinya saat itu juga, misalnya karena server luar tidak terjangkau.
+export function skip(reason) {
+    throw new SkipError(reason);
+}
 
 const format = value => {
     try {
@@ -77,8 +83,8 @@ export async function run() {
                 await item.run();
                 status = "passed";
             } catch (error) {
-                status = "failed";
-                detail = error instanceof AssertionError ? error.message : (error && error.stack) || String(error);
+                status = error instanceof SkipError ? "skipped" : "failed";
+                detail = error instanceof AssertionError || error instanceof SkipError ? error.message : (error && error.stack) || String(error);
             }
         }
         fixtures.splice(0).forEach(element => element.remove());

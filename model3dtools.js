@@ -53,6 +53,22 @@ function injectStyles() {
     box-shadow: 0 0 0 2px #fff;
 }
 .crootjs-3d-hotspot-hidden { opacity: 0.25; }
+.crootjs-3d a.crootjs-3d-ar {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: 999px;
+    background-color: #2563eb;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    color: #fff;
+    font: 600 14px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    text-decoration: none;
+}
+.crootjs-3d a.crootjs-3d-ar img { width: 18px; height: 18px; }
 .crootjs-3d-hotspot-clickable { cursor: pointer; }
 svg.crootjs-3d-gizmo { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .crootjs-3d-gizmo .crootjs-3d-gizmo-hit { stroke: transparent; stroke-width: 16px; fill: none; pointer-events: stroke; cursor: pointer; }
@@ -778,6 +794,55 @@ export function addSection(id, options = {}) {
     sections.set(viewer, section);
     apply();
     return { set: section.set, remove: section.remove };
+}
+
+// ---- AR
+
+const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const isAndroid = () => /Android/i.test(navigator.userAgent);
+
+// Tautan yang membuka model di Scene Viewer (aplikasi AR Google di Android): model tampil di
+// ruangan lewat kamera, bisa digeser dan diputar. url harus .glb/.gltf yang bisa diunduh publik
+// lewat HTTPS (bukan blob: atau file lokal). options: title, mode ("ar_preferred" bawaan,
+// "ar_only", "3d_only"), fallback (URL kalau Scene Viewer tidak ada; bawaan halaman ini).
+export function getARLink(url, options = {}) {
+    const params = new URLSearchParams({ file: new URL(url, location.href).href, mode: options.mode || "ar_preferred" });
+    if (options.title) params.set("title", options.title);
+    const fallback = encodeURIComponent(options.fallback || location.href);
+    return `intent://arvr.google.com/scene-viewer/1.0?${params}#Intent;scheme=https;package=com.google.android.googlequicksearchbox;action=android.intent.action.VIEW;S.browser_fallback_url=${fallback};end;`;
+}
+
+// Tombol "Lihat di AR" di pojok penampil. Di Android membuka Scene Viewer dengan url; di iPhone
+// dan iPad membuka AR Quick Look - tapi hanya kalau options.usdz diisi (Quick Look tidak bisa
+// membuka .glb; ubah dulu ke .usdz, misalnya dengan Reality Converter). Di perangkat lain
+// tombolnya tidak ditambahkan.
+// options: title, usdz, label (bawaan "Lihat di AR"), mode, fallback.
+// Mengembalikan { supported, remove() } - supported = false kalau tombolnya tidak ditambahkan.
+export function addARButton(id, url, options = {}) {
+    const viewer = viewerOf(id);
+    if (!viewer) return { supported: false, remove() {} };
+    injectStyles();
+    let element = null;
+    const label = options.label || "Lihat di AR";
+    if (isAndroid()) {
+        element = document.createElement("a");
+        element.href = getARLink(url, options);
+        element.textContent = label;
+    } else if (isIOS() && options.usdz) {
+        // Quick Look hanya dibuka dari <a rel="ar"> yang anak pertamanya <img>.
+        element = document.createElement("a");
+        element.rel = "ar";
+        element.href = new URL(options.usdz, location.href).href;
+        const icon = document.createElement("img");
+        icon.alt = "";
+        icon.src = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round"><path d="M12 2l9 5v10l-9 5-9-5V7z"/><path d="M12 22V12M3 7l9 5 9-5"/></svg>');
+        element.append(icon, document.createTextNode(" " + label));
+    }
+    if (!element) return { supported: false, remove() {} };
+    element.className = "crootjs-3d-ar";
+    isolate(element);
+    viewer.root.appendChild(element);
+    return { supported: true, remove: () => element.remove() };
 }
 
 // ---- Ekspor GLB

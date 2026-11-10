@@ -687,7 +687,9 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/map.js" {
      * maxZoom     default 19
      * tiles       pola URL tile raster dengan {z}, {x}, {y}. Boleh juga memakai {s} (subdomain),
      * {r} ("@2x" di layar retina), dan {-y} (baris skema TMS). Default: OpenStreetMap.
-     * false = tanpa peta dasar, hanya data yang digambar.
+     * false = tanpa peta dasar, hanya data yang digambar. Boleh juga object
+     * { getTile(z, x, y) } yang mengembalikan Promise berisi Blob, URL, atau null,
+     * misalnya file PMTiles dari mapoffline.js.
      * attribution atribusi untuk `tiles` buatan sendiri: teks, elemen DOM (untuk tautan), atau
      * array-nya kalau sumbernya lebih dari satu
      * attributionPrefix  false = tanpa tautan "CrootJS" di depan atribusi
@@ -896,7 +898,9 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/map.min.js" {
      * maxZoom     default 19
      * tiles       pola URL tile raster dengan {z}, {x}, {y}. Boleh juga memakai {s} (subdomain),
      * {r} ("@2x" di layar retina), dan {-y} (baris skema TMS). Default: OpenStreetMap.
-     * false = tanpa peta dasar, hanya data yang digambar.
+     * false = tanpa peta dasar, hanya data yang digambar. Boleh juga object
+     * { getTile(z, x, y) } yang mengembalikan Promise berisi Blob, URL, atau null,
+     * misalnya file PMTiles dari mapoffline.js.
      * attribution atribusi untuk `tiles` buatan sendiri: teks, elemen DOM (untuk tautan), atau
      * array-nya kalau sumbernya lebih dari satu
      * attributionPrefix  false = tanpa tautan "CrootJS" di depan atribusi
@@ -1561,6 +1565,332 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/mapmarker.min.js" {
     export function addMarker(id: string, position: number[], options?: Record<string, any>): any;
 }
 
+declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/mapmodel.js" {
+    /**
+     * Membuat penampil 3D di dalam elemen id (biasanya <div> yang sudah diberi tinggi lewat CSS).
+     * options (semua opsional):
+     * background  warna atau gradasi CSS latar. Default abu-abu terang bergradasi.
+     * "transparent" = latar halaman terlihat.
+     * autoRotate  derajat per detik model berputar sendiri; berhenti begitu pengguna menyentuhnya.
+     * fov         sudut pandang vertikal kamera, derajat. Default 45.
+     * controls    false = tanpa orbit/zoom/geser dari pengguna. Default true.
+     * webgl       1 = paksa WebGL1 (untuk menguji cadangan). Default WebGL2, cadangan WebGL1.
+     * dracoDecoder  folder dekoder Draco (draco_wasm_wrapper_gltf.js + draco_decoder_gltf.wasm)
+     * untuk model terkompresi Draco. Default dari www.gstatic.com; isi dengan folder
+     * sendiri kalau aplikasinya harus jalan tanpa server Google.
+     */
+    export function createViewer(id: string, options?: Record<string, any>): any;
+    /**
+     * Memuat model glTF 2.0 dan menggantikan model sebelumnya. source: URL file .glb/.gltf,
+     * File/Blob (misalnya dari <input type="file">), atau ArrayBuffer.
+     * responseFunction(info, error) dipanggil setelah model tampil:
+     * info = { parts: [nama bagian], triangles, bounds: { min, max, center, size } }, atau
+     * null kalau gagal - error berisi alasannya (juga dicetak di console).
+     * Juga mengembalikan Promise berisi info yang sama, jadi bisa di-await.
+     */
+    export function loadModel(id: string, source: any, responseFunction?: (...args: any[]) => any): Promise<{ parts: string[]; triangles: number; bounds: { min: number[]; max: number[]; center: number[]; size: number[] } | null } | null>;
+    /**
+     * Menghapus model dari penampil. Penampilnya tetap, siap memuat model lain.
+     */
+    export function clearModel(id: string): any;
+    /**
+     * Menghapus penampil dari elemennya, beserta konteks WebGL-nya.
+     */
+    export function removeViewer(id: string): any;
+    /**
+     * Daftar semua bagian (node) model, urut seperti pohonnya:
+     * [{ name, mesh, parent, depth, visible }]. depth = kedalaman di pohon (0 = paling atas).
+     */
+    export function getParts(id: string): any;
+    /**
+     * Mengganti warna sebuah bagian beserta bagian di bawahnya. color: warna CSS ("#ff0000",
+     * "red", "rgba(255, 0, 0, 0.5)") atau [r, g, b, a] 0..1; null = kembali ke warna aslinya.
+     * Warna dengan alpha < 1 membuatnya transparan. Mengembalikan false kalau bagiannya tidak ada.
+     */
+    export function setPartColor(id: string, name: string, color: any): any;
+    /**
+     * Menampilkan atau menyembunyikan sebuah bagian beserta bagian di bawahnya.
+     */
+    export function setPartVisible(id: string, name: string, visible: any): any;
+    /**
+     * Menandai bagian yang sedang dipilih dengan warna biru. null = hapus tanda.
+     */
+    export function highlightPart(id: string, name: string): any;
+    /**
+     * Posisi, rotasi, dan skala sebuah bagian relatif terhadap induknya:
+     * { position: [x, y, z], rotation: [x, y, z] derajat (Euler XYZ), quaternion, scale }.
+     */
+    export function getPartTransform(id: string, name: string): any;
+    /**
+     * Mengubah posisi, rotasi, dan/atau skala sebuah bagian (yang diisi saja). rotation =
+     * [x, y, z] derajat (Euler XYZ) atau quaternion [x, y, z, w]; scale = angka atau [x, y, z].
+     */
+    export function setPartTransform(id: string, name: string, transform?: Record<string, any>): any;
+    /**
+     * runFunction(hit) setiap kali model diklik atau di-tap (bukan digeser). hit = { part, mesh,
+     * path, position, distance }: part = nama bagian yang kena, path = nama-nama dari bagian
+     * teratas sampai bagian itu, position = titik yang kena [x, y, z]. null kalau yang diklik
+     * latarnya. Mengembalikan function stop().
+     */
+    export function onModelClick(id: string, runFunction?: (...args: any[]) => any): any;
+    /**
+     * Menggerakkan kamera supaya seluruh model - atau bagian name saja - pas di layar.
+     * name boleh juga array nama: semua bagian itu dibuat muat sekaligus.
+     */
+    export function fitView(id: string, name: string): any;
+    /**
+     * Mengatur kamera: { yaw, pitch, distance, target } - yang diisi saja. yaw = sudut keliling
+     * (derajat, 0 = dari depan/+Z), pitch = sudut dari atas (derajat, -89..89), distance = jarak
+     * ke target, target = [x, y, z] titik yang dilihat. animate: false = langsung pindah.
+     */
+    export function setCameraView(id: string, view?: Record<string, any>, animate?: boolean): any;
+    /**
+     * Kamera sekarang: { yaw, pitch, distance, target } (sudut dalam derajat).
+     */
+    export function getCameraView(id: string): any;
+    /**
+     * Memutar model terus-menerus (derajat per detik), 0 = berhenti.
+     */
+    export function setAutoRotate(id: string, degreesPerSecond: any): any;
+    /**
+     * Menaruh model 3D di position [lng, lat]. source: URL .glb/.gltf, File/Blob, atau ArrayBuffer
+     * (sama dengan loadModel). Titik asal model (0, 0, 0) - biasanya tengah dasarnya - jatuh tepat
+     * di position. Sumbu model mengikuti glTF: +Y ke atas, -Z menghadap utara, +X ke timur.
+     * options (semua opsional):
+     * heading      putaran model searah jarum jam dari utara, derajat. Bawaan 0.
+     * pitch        sudut pandang dari atas cakrawala, derajat (90 = tegak dari atas). Bawaan 50.
+     * scale        meter per satuan model. Bawaan 1 (glTF memakai meter).
+     * minZoom      di bawah zoom ini model disembunyikan (terlalu kecil). Bawaan 13.
+     * onClick      function (hit) saat model diklik; hit sama dengan onModelClick model3d.js.
+     * Klik sampai 8 piksel dari model masih dihitung, karena model di peta kecil.
+     * responseFunction  function (info, error) setelah model dimuat, sama dengan loadModel.
+     * Mengembalikan { setPosition(position), setHeading(degrees), viewerId, loaded, remove() }:
+     * viewerId bisa dipakai fungsi model3d.js yang diekspor ulang modul ini, misalnya
+     * setPartColor(viewerId, "Antena_1", "red"); loaded = Promise hasil loadModel.
+     */
+    export function addModel(id: string, position: number[], source: any, options?: Record<string, any>): any;
+}
+
+declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/mapmodel.min.js" {
+    /**
+     * Membuat penampil 3D di dalam elemen id (biasanya <div> yang sudah diberi tinggi lewat CSS).
+     * options (semua opsional):
+     * background  warna atau gradasi CSS latar. Default abu-abu terang bergradasi.
+     * "transparent" = latar halaman terlihat.
+     * autoRotate  derajat per detik model berputar sendiri; berhenti begitu pengguna menyentuhnya.
+     * fov         sudut pandang vertikal kamera, derajat. Default 45.
+     * controls    false = tanpa orbit/zoom/geser dari pengguna. Default true.
+     * webgl       1 = paksa WebGL1 (untuk menguji cadangan). Default WebGL2, cadangan WebGL1.
+     * dracoDecoder  folder dekoder Draco (draco_wasm_wrapper_gltf.js + draco_decoder_gltf.wasm)
+     * untuk model terkompresi Draco. Default dari www.gstatic.com; isi dengan folder
+     * sendiri kalau aplikasinya harus jalan tanpa server Google.
+     */
+    export function createViewer(id: string, options?: Record<string, any>): any;
+    /**
+     * Memuat model glTF 2.0 dan menggantikan model sebelumnya. source: URL file .glb/.gltf,
+     * File/Blob (misalnya dari <input type="file">), atau ArrayBuffer.
+     * responseFunction(info, error) dipanggil setelah model tampil:
+     * info = { parts: [nama bagian], triangles, bounds: { min, max, center, size } }, atau
+     * null kalau gagal - error berisi alasannya (juga dicetak di console).
+     * Juga mengembalikan Promise berisi info yang sama, jadi bisa di-await.
+     */
+    export function loadModel(id: string, source: any, responseFunction?: (...args: any[]) => any): Promise<{ parts: string[]; triangles: number; bounds: { min: number[]; max: number[]; center: number[]; size: number[] } | null } | null>;
+    /**
+     * Menghapus model dari penampil. Penampilnya tetap, siap memuat model lain.
+     */
+    export function clearModel(id: string): any;
+    /**
+     * Menghapus penampil dari elemennya, beserta konteks WebGL-nya.
+     */
+    export function removeViewer(id: string): any;
+    /**
+     * Daftar semua bagian (node) model, urut seperti pohonnya:
+     * [{ name, mesh, parent, depth, visible }]. depth = kedalaman di pohon (0 = paling atas).
+     */
+    export function getParts(id: string): any;
+    /**
+     * Mengganti warna sebuah bagian beserta bagian di bawahnya. color: warna CSS ("#ff0000",
+     * "red", "rgba(255, 0, 0, 0.5)") atau [r, g, b, a] 0..1; null = kembali ke warna aslinya.
+     * Warna dengan alpha < 1 membuatnya transparan. Mengembalikan false kalau bagiannya tidak ada.
+     */
+    export function setPartColor(id: string, name: string, color: any): any;
+    /**
+     * Menampilkan atau menyembunyikan sebuah bagian beserta bagian di bawahnya.
+     */
+    export function setPartVisible(id: string, name: string, visible: any): any;
+    /**
+     * Menandai bagian yang sedang dipilih dengan warna biru. null = hapus tanda.
+     */
+    export function highlightPart(id: string, name: string): any;
+    /**
+     * Posisi, rotasi, dan skala sebuah bagian relatif terhadap induknya:
+     * { position: [x, y, z], rotation: [x, y, z] derajat (Euler XYZ), quaternion, scale }.
+     */
+    export function getPartTransform(id: string, name: string): any;
+    /**
+     * Mengubah posisi, rotasi, dan/atau skala sebuah bagian (yang diisi saja). rotation =
+     * [x, y, z] derajat (Euler XYZ) atau quaternion [x, y, z, w]; scale = angka atau [x, y, z].
+     */
+    export function setPartTransform(id: string, name: string, transform?: Record<string, any>): any;
+    /**
+     * runFunction(hit) setiap kali model diklik atau di-tap (bukan digeser). hit = { part, mesh,
+     * path, position, distance }: part = nama bagian yang kena, path = nama-nama dari bagian
+     * teratas sampai bagian itu, position = titik yang kena [x, y, z]. null kalau yang diklik
+     * latarnya. Mengembalikan function stop().
+     */
+    export function onModelClick(id: string, runFunction?: (...args: any[]) => any): any;
+    /**
+     * Menggerakkan kamera supaya seluruh model - atau bagian name saja - pas di layar.
+     * name boleh juga array nama: semua bagian itu dibuat muat sekaligus.
+     */
+    export function fitView(id: string, name: string): any;
+    /**
+     * Mengatur kamera: { yaw, pitch, distance, target } - yang diisi saja. yaw = sudut keliling
+     * (derajat, 0 = dari depan/+Z), pitch = sudut dari atas (derajat, -89..89), distance = jarak
+     * ke target, target = [x, y, z] titik yang dilihat. animate: false = langsung pindah.
+     */
+    export function setCameraView(id: string, view?: Record<string, any>, animate?: boolean): any;
+    /**
+     * Kamera sekarang: { yaw, pitch, distance, target } (sudut dalam derajat).
+     */
+    export function getCameraView(id: string): any;
+    /**
+     * Memutar model terus-menerus (derajat per detik), 0 = berhenti.
+     */
+    export function setAutoRotate(id: string, degreesPerSecond: any): any;
+    /**
+     * Menaruh model 3D di position [lng, lat]. source: URL .glb/.gltf, File/Blob, atau ArrayBuffer
+     * (sama dengan loadModel). Titik asal model (0, 0, 0) - biasanya tengah dasarnya - jatuh tepat
+     * di position. Sumbu model mengikuti glTF: +Y ke atas, -Z menghadap utara, +X ke timur.
+     * options (semua opsional):
+     * heading      putaran model searah jarum jam dari utara, derajat. Bawaan 0.
+     * pitch        sudut pandang dari atas cakrawala, derajat (90 = tegak dari atas). Bawaan 50.
+     * scale        meter per satuan model. Bawaan 1 (glTF memakai meter).
+     * minZoom      di bawah zoom ini model disembunyikan (terlalu kecil). Bawaan 13.
+     * onClick      function (hit) saat model diklik; hit sama dengan onModelClick model3d.js.
+     * Klik sampai 8 piksel dari model masih dihitung, karena model di peta kecil.
+     * responseFunction  function (info, error) setelah model dimuat, sama dengan loadModel.
+     * Mengembalikan { setPosition(position), setHeading(degrees), viewerId, loaded, remove() }:
+     * viewerId bisa dipakai fungsi model3d.js yang diekspor ulang modul ini, misalnya
+     * setPartColor(viewerId, "Antena_1", "red"); loaded = Promise hasil loadModel.
+     */
+    export function addModel(id: string, position: number[], source: any, options?: Record<string, any>): any;
+}
+
+declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/mapoffline.js" {
+    /**
+     * Nomor tile di kurva Hilbert, seperti spesifikasi PMTiles: tile di semua zoom sebelumnya,
+     * ditambah urutan (x, y) di kurva Hilbert level z.
+     */
+    export function tileId(z: any, x: any, y: any): any;
+    /**
+     * Membuka file PMTiles. source: URL (server harus mengizinkan header Range; GitHub Pages,
+     * Cloudflare R2, S3, dan nginx biasa sudah), atau File/Blob dari <input type="file">.
+     * responseFunction(archive, error) dipanggil sekali; juga mengembalikan Promise berisi archive
+     * (atau null kalau gagal - alasannya di error dan console).
+     * archive = { getTile(z, x, y), minZoom, maxZoom, bounds: [minLng, minLat, maxLng, maxLat],
+     * center: [lng, lat], centerZoom, tileType, metadata, attribution }
+     * archive langsung bisa dipakai sebagai opsi tiles di createMap atau setTiles.
+     */
+    export function openPMTiles(source: any, responseFunction?: (...args: any[]) => any): Promise<any>;
+}
+
+declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/mapoffline.min.js" {
+    /**
+     * Nomor tile di kurva Hilbert, seperti spesifikasi PMTiles: tile di semua zoom sebelumnya,
+     * ditambah urutan (x, y) di kurva Hilbert level z.
+     */
+    export function tileId(z: any, x: any, y: any): any;
+    /**
+     * Membuka file PMTiles. source: URL (server harus mengizinkan header Range; GitHub Pages,
+     * Cloudflare R2, S3, dan nginx biasa sudah), atau File/Blob dari <input type="file">.
+     * responseFunction(archive, error) dipanggil sekali; juga mengembalikan Promise berisi archive
+     * (atau null kalau gagal - alasannya di error dan console).
+     * archive = { getTile(z, x, y), minZoom, maxZoom, bounds: [minLng, minLat, maxLng, maxLat],
+     * center: [lng, lat], centerZoom, tileType, metadata, attribution }
+     * archive langsung bisa dipakai sebagai opsi tiles di createMap atau setTiles.
+     */
+    export function openPMTiles(source: any, responseFunction?: (...args: any[]) => any): Promise<any>;
+}
+
+declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/mapsearch.js" {
+    /**
+     * Mencari tempat dari teks: nama, alamat, atau nama jalan.
+     * responseFunction(results) - results = [{ name, position: [lng, lat], bbox: [minLng, minLat,
+     * maxLng, maxLat] atau null, type, address, raw }], array kosong kalau tidak ada yang cocok, atau
+     * null kalau permintaannya gagal (jaringan, server menolak). Juga mengembalikan Promise berisi
+     * results yang sama.
+     * options (semua opsional):
+     * limit         banyak hasil, bawaan 5
+     * countryCodes  batasi negara, misalnya "id" atau "id,my"
+     * language      bahasa nama tempat, bawaan bahasa browser
+     * viewbox       [minLng, minLat, maxLng, maxLat] untuk mengutamakan hasil di area itu
+     * url           alamat server Nominatim sendiri. Bawaan server publik OSM
+     * provider      function (query, options) => Promise<results> untuk penyedia lain; dipakai
+     * sebagai ganti Nominatim, hasilnya harus berbentuk seperti di atas
+     */
+    export function searchPlace(query: any, responseFunction?: (...args: any[]) => any, options?: Record<string, any>): Promise<any>;
+    /**
+     * Alamat di sebuah titik [lng, lat]. responseFunction(result) - result = { name, position,
+     * bbox, type, address, raw }, null kalau tidak ada alamat di sana atau permintaannya gagal.
+     * Juga mengembalikan Promise. options: zoom (detail alamat 3-18, bawaan 18 = bangunan),
+     * language, url, provider (function (position, options) => Promise<result>).
+     */
+    export function reverseGeocode(position: number[], responseFunction?: (...args: any[]) => any, options?: Record<string, any>): Promise<any>;
+    /**
+     * Kotak pencarian di pojok peta. Ketik lalu Enter (atau tombol cari); pilih hasilnya dengan
+     * klik, atau panah atas/bawah + Enter. Peta pindah ke tempat itu dan memberi tanda merah.
+     * Pencarian hanya dikirim saat Enter/tombol ditekan, bukan setiap huruf - sesuai aturan server
+     * publik Nominatim.
+     * options (semua opsional): placeholder, corner (bawaan "top-right"), marker (false = tanpa
+     * tanda), maxZoom (zoom terdekat saat pindah, bawaan 17), onSelect(result), plus opsi
+     * searchPlace (limit, countryCodes, language, viewbox, url, provider).
+     * Selama memakai server Nominatim publik, daftar hasil diberi atribusi "Data © kontributor
+     * OpenStreetMap" (wajib menurut aturan pemakaiannya).
+     * Mengembalikan { search(text), clear(), remove() }.
+     */
+    export function addSearchControl(id: string, options?: Record<string, any>): any;
+}
+
+declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/mapsearch.min.js" {
+    /**
+     * Mencari tempat dari teks: nama, alamat, atau nama jalan.
+     * responseFunction(results) - results = [{ name, position: [lng, lat], bbox: [minLng, minLat,
+     * maxLng, maxLat] atau null, type, address, raw }], array kosong kalau tidak ada yang cocok, atau
+     * null kalau permintaannya gagal (jaringan, server menolak). Juga mengembalikan Promise berisi
+     * results yang sama.
+     * options (semua opsional):
+     * limit         banyak hasil, bawaan 5
+     * countryCodes  batasi negara, misalnya "id" atau "id,my"
+     * language      bahasa nama tempat, bawaan bahasa browser
+     * viewbox       [minLng, minLat, maxLng, maxLat] untuk mengutamakan hasil di area itu
+     * url           alamat server Nominatim sendiri. Bawaan server publik OSM
+     * provider      function (query, options) => Promise<results> untuk penyedia lain; dipakai
+     * sebagai ganti Nominatim, hasilnya harus berbentuk seperti di atas
+     */
+    export function searchPlace(query: any, responseFunction?: (...args: any[]) => any, options?: Record<string, any>): Promise<any>;
+    /**
+     * Alamat di sebuah titik [lng, lat]. responseFunction(result) - result = { name, position,
+     * bbox, type, address, raw }, null kalau tidak ada alamat di sana atau permintaannya gagal.
+     * Juga mengembalikan Promise. options: zoom (detail alamat 3-18, bawaan 18 = bangunan),
+     * language, url, provider (function (position, options) => Promise<result>).
+     */
+    export function reverseGeocode(position: number[], responseFunction?: (...args: any[]) => any, options?: Record<string, any>): Promise<any>;
+    /**
+     * Kotak pencarian di pojok peta. Ketik lalu Enter (atau tombol cari); pilih hasilnya dengan
+     * klik, atau panah atas/bawah + Enter. Peta pindah ke tempat itu dan memberi tanda merah.
+     * Pencarian hanya dikirim saat Enter/tombol ditekan, bukan setiap huruf - sesuai aturan server
+     * publik Nominatim.
+     * options (semua opsional): placeholder, corner (bawaan "top-right"), marker (false = tanpa
+     * tanda), maxZoom (zoom terdekat saat pindah, bawaan 17), onSelect(result), plus opsi
+     * searchPlace (limit, countryCodes, language, viewbox, url, provider).
+     * Selama memakai server Nominatim publik, daftar hasil diberi atribusi "Data © kontributor
+     * OpenStreetMap" (wajib menurut aturan pemakaiannya).
+     * Mengembalikan { search(text), clear(), remove() }.
+     */
+    export function addSearchControl(id: string, options?: Record<string, any>): any;
+}
+
 declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/maptools.js" {
     /**
      * Panjang dalam meter -> teks: "85,4 m", "640 m", "12,35 km".
@@ -1719,6 +2049,9 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/model3d.js" {
      * fov         sudut pandang vertikal kamera, derajat. Default 45.
      * controls    false = tanpa orbit/zoom/geser dari pengguna. Default true.
      * webgl       1 = paksa WebGL1 (untuk menguji cadangan). Default WebGL2, cadangan WebGL1.
+     * dracoDecoder  folder dekoder Draco (draco_wasm_wrapper_gltf.js + draco_decoder_gltf.wasm)
+     * untuk model terkompresi Draco. Default dari www.gstatic.com; isi dengan folder
+     * sendiri kalau aplikasinya harus jalan tanpa server Google.
      */
     export function createViewer(id: string, options?: Record<string, any>): any;
     /**
@@ -1805,6 +2138,9 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/model3d.min.js" {
      * fov         sudut pandang vertikal kamera, derajat. Default 45.
      * controls    false = tanpa orbit/zoom/geser dari pengguna. Default true.
      * webgl       1 = paksa WebGL1 (untuk menguji cadangan). Default WebGL2, cadangan WebGL1.
+     * dracoDecoder  folder dekoder Draco (draco_wasm_wrapper_gltf.js + draco_decoder_gltf.wasm)
+     * untuk model terkompresi Draco. Default dari www.gstatic.com; isi dengan folder
+     * sendiri kalau aplikasinya harus jalan tanpa server Google.
      */
     export function createViewer(id: string, options?: Record<string, any>): any;
     /**
@@ -1951,6 +2287,22 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/model3dtools.js" {
      */
     export function addSection(id: string, options?: Record<string, any>): any;
     /**
+     * Tautan yang membuka model di Scene Viewer (aplikasi AR Google di Android): model tampil di
+     * ruangan lewat kamera, bisa digeser dan diputar. url harus .glb/.gltf yang bisa diunduh publik
+     * lewat HTTPS (bukan blob: atau file lokal). options: title, mode ("ar_preferred" bawaan,
+     * "ar_only", "3d_only"), fallback (URL kalau Scene Viewer tidak ada; bawaan halaman ini).
+     */
+    export function getARLink(url: string, options?: Record<string, any>): any;
+    /**
+     * Tombol "Lihat di AR" di pojok penampil. Di Android membuka Scene Viewer dengan url; di iPhone
+     * dan iPad membuka AR Quick Look - tapi hanya kalau options.usdz diisi (Quick Look tidak bisa
+     * membuka .glb; ubah dulu ke .usdz, misalnya dengan Reality Converter). Di perangkat lain
+     * tombolnya tidak ditambahkan.
+     * options: title, usdz, label (bawaan "Lihat di AR"), mode, fallback.
+     * Mengembalikan { supported, remove() } - supported = false kalau tombolnya tidak ditambahkan.
+     */
+    export function addARButton(id: string, url: string, options?: Record<string, any>): any;
+    /**
      * Mengekspor model yang sedang tampil, beserta semua perubahannya (posisi, rotasi, skala,
      * warna, bagian yang disembunyikan), sebagai file .glb.
      * responseFunction(blob) - blob = Blob .glb, atau null kalau belum ada model. Juga
@@ -2032,6 +2384,22 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/model3dtools.min.js" {
      * sebagian opsi, misalnya { position } dari slider.
      */
     export function addSection(id: string, options?: Record<string, any>): any;
+    /**
+     * Tautan yang membuka model di Scene Viewer (aplikasi AR Google di Android): model tampil di
+     * ruangan lewat kamera, bisa digeser dan diputar. url harus .glb/.gltf yang bisa diunduh publik
+     * lewat HTTPS (bukan blob: atau file lokal). options: title, mode ("ar_preferred" bawaan,
+     * "ar_only", "3d_only"), fallback (URL kalau Scene Viewer tidak ada; bawaan halaman ini).
+     */
+    export function getARLink(url: string, options?: Record<string, any>): any;
+    /**
+     * Tombol "Lihat di AR" di pojok penampil. Di Android membuka Scene Viewer dengan url; di iPhone
+     * dan iPad membuka AR Quick Look - tapi hanya kalau options.usdz diisi (Quick Look tidak bisa
+     * membuka .glb; ubah dulu ke .usdz, misalnya dengan Reality Converter). Di perangkat lain
+     * tombolnya tidak ditambahkan.
+     * options: title, usdz, label (bawaan "Lihat di AR"), mode, fallback.
+     * Mengembalikan { supported, remove() } - supported = false kalau tombolnya tidak ditambahkan.
+     */
+    export function addARButton(id: string, url: string, options?: Record<string, any>): any;
     /**
      * Mengekspor model yang sedang tampil, beserta semua perubahannya (posisi, rotasi, skala,
      * warna, bagian yang disembunyikan), sebagai file .glb.
