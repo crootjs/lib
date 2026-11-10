@@ -9,11 +9,11 @@ Library CrootJS
 Import any module straight from jsDelivr's GitHub CDN — no `npm install`, no build step:
 
 ```js
-import { getJSON, postJSON } from "https://cdn.jsdelivr.net/gh/crootjs/lib@0.0.25/api.js";
+import { getJSON, postJSON } from "https://cdn.jsdelivr.net/gh/crootjs/lib@0.0.26/api.js";
 ```
 
 - **Pin an exact version tag** (`@0.0.5`) — check current tags at https://github.com/crootjs/lib/tags. Never use `@latest` in committed code; it can change under you without warning.
-- **Use `.min.js` in production** — jsDelivr auto-minifies any file on request via Terser, even though no `.min.js` is committed to this repo: `.../lib@0.0.25/api.min.js`. Use the unminified `.js` only when actively reading/debugging.
+- **Use `.min.js` in production** — jsDelivr auto-minifies any file on request via Terser, even though no `.min.js` is committed to this repo: `.../lib@0.0.26/api.min.js`. Use the unminified `.js` only when actively reading/debugging.
 - **Import only what you use** — each file is independent (`cookie.js`, `url.js`, `validate.js`, ...); there's no single "import everything" entry point, so your page only loads the code it needs.
 
 Full per-module API reference: https://croot.js.org/docs/
@@ -40,9 +40,10 @@ Changes per version: [CHANGELOG.md](CHANGELOG.md).
 
 Copy [`crootjs.d.ts`](crootjs.d.ts) into your project (next to a `jsconfig.json`). VS Code then knows every module imported straight from jsDelivr — any version, `.js` or `.min.js` — and shows parameter names, order, and the docs comment of each function. It is generated from the source: `python3 tools/build-types.py`.
 
-## Release Tag
-```sh
-git tag                                 #check current version
-git tag v0.0.3                          #set tag version
-git push origin --tags                  #push tag version to repo
-```
+## Releasing
+
+1. Add a section at the top of [CHANGELOG.md](CHANGELOG.md): `## [x.y.z](https://github.com/crootjs/lib/releases/tag/vx.y.z) - YYYY-MM-DD`, a bold title line, then the notes.
+2. Regenerate the type declarations: `python3 tools/build-types.py`.
+3. Push to `main`. The workflow runs the tests; if they pass and the newest CHANGELOG version has no tag yet, it creates the tag `vx.y.z` and the GitHub Release from that section ([`tools/release.py`](tools/release.py)). Pushes that don't add a version (docs, pin bumps) create nothing.
+
+Tagging by hand (`git tag vx.y.z && git push origin vx.y.z`) also works; the workflow then only adds the missing release.

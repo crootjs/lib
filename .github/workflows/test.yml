@@ -1,4 +1,6 @@
-# Menjalankan tests/index.html di Chromium headless setiap push, pull request, dan tag.
+# Setiap push dan pull request: jalankan tests/index.html di Chromium headless.
+# Setiap push ke main yang lolos uji: buat tag dan GitHub Release dari CHANGELOG.md
+# (tools/release.py) - hanya kalau versi teratasnya belum punya tag/release.
 # Playwright (Python) hanya dipakai untuk menjalankan uji; pengguna CrootJS tetap tanpa npm.
 name: test
 
@@ -23,3 +25,23 @@ jobs:
           python -m playwright install --with-deps chromium
       - name: Jalankan uji
         run: python tests/run.py
+
+  release:
+    needs: browser
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    concurrency: release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Tag dan GitHub Release dari CHANGELOG.md
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898341+github-actions[bot]@users.noreply.github.com"
+          python3 tools/release.py
