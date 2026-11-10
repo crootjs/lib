@@ -2,6 +2,12 @@
 
 All notable changes to CrootJS. Versions are git tags, served by jsDelivr as `https://cdn.jsdelivr.net/gh/crootjs/lib@<version>/<module>.js`; each is also a [GitHub release](https://github.com/crootjs/lib/releases).
 
+## [0.0.28](https://github.com/crootjs/lib/releases/tag/v0.0.28) - 2026-11-11
+
+**PMTiles on servers that break HTTP Range**
+
+- **mapoffline.js** - GitHub Pages gzip-compresses `.pmtiles` files and cuts ranges from the compressed bytes, so browsers reject or corrupt the pieces; the 0.0.27 offline example failed live because of it. When a Range request fails or returns the wrong length, the file is now downloaded whole once and read from memory, with a console warning. Covered by a new test that simulates such a server.
+
 ## [0.0.27](https://github.com/crootjs/lib/releases/tag/v0.0.27) - 2026-11-11
 
 **Address search, offline PMTiles maps, 3D models on the map, skinning, Draco, AR, English docs**

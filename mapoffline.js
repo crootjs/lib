@@ -96,22 +96,48 @@ function byteReader(source) {
         return (offset, length) => source.slice(offset, offset + length).arrayBuffer().then(buffer => new Uint8Array(buffer));
     }
     const url = new URL(String(source), location.href).href;
-    let whole = null; // server yang mengabaikan Range mengirim seluruh file: disimpan sekali
+    let whole = null;   // seluruh file, kalau Range tidak bisa dipakai
+    let loading = null;
+    let ranged = true;
+    const readWhole = () => {
+        loading = loading || fetch(url).then(response => {
+            if (!response.ok) throw new Error(`HTTP ${response.status} saat membaca ${url}`);
+            return response.arrayBuffer();
+        }).then(buffer => { whole = new Uint8Array(buffer); });
+        return loading;
+    };
     return async (offset, length) => {
-        if (whole) return whole.subarray(offset, offset + length);
-        const response = await fetch(url, { headers: { Range: `bytes=${offset}-${offset + length - 1}` } });
-        if (!response.ok) throw new Error(`HTTP ${response.status} saat membaca ${url}`);
-        const bytes = new Uint8Array(await response.arrayBuffer());
-        if (response.status === 200 && bytes.length > length) {
-            whole = bytes;
-            return whole.subarray(offset, offset + length);
+        if (ranged) {
+            try {
+                const response = await fetch(url, { headers: { Range: `bytes=${offset}-${offset + length - 1}` } });
+                if (!response.ok) throw new Error(`HTTP ${response.status} saat membaca ${url}`);
+                const bytes = new Uint8Array(await response.arrayBuffer());
+                if (response.status === 206 && bytes.length === Math.min(length, rangeTotal(response) - offset)) return bytes;
+                if (response.status === 200) whole = bytes; // server mengabaikan Range: seluruh file sudah di sini
+                else throw new Error("potongan tidak utuh");
+            } catch (error) {
+                // Server yang mengompres file lalu memotong hasil kompresinya (GitHub Pages untuk
+                // tipe file yang tidak dikenalnya) memberi potongan rusak atau ditolak browser.
+                // Cadangannya: unduh seluruh file sekali, lalu baca dari memori.
+                if (error.message.startsWith("HTTP")) throw error;
+                console.warn(`Server ${new URL(url).host} tidak melayani HTTP Range dengan benar; seluruh file PMTiles diunduh sekali.`);
+            }
+            ranged = false;
         }
-        return bytes;
+        if (!whole) await readWhole();
+        return whole.subarray(offset, offset + length);
     };
 }
 
-// Membuka file PMTiles. source: URL (server harus mengizinkan header Range; GitHub Pages,
-// Cloudflare R2, S3, dan nginx biasa sudah), atau File/Blob dari <input type="file">.
+// Ukuran seluruh file dari header "Content-Range: bytes a-b/total" (Infinity kalau tidak ada).
+function rangeTotal(response) {
+    const match = /\/(\d+)\s*$/.exec(response.headers.get("Content-Range") || "");
+    return match ? Number(match[1]) : Infinity;
+}
+
+// Membuka file PMTiles. source: URL, atau File/Blob dari <input type="file">. URL dibaca
+// sepotong-sepotong lewat HTTP Range (Cloudflare R2, S3, nginx biasa); server yang tidak
+// melayani Range dengan benar membuat seluruh file diunduh sekali.
 // responseFunction(archive, error) dipanggil sekali; juga mengembalikan Promise berisi archive
 // (atau null kalau gagal - alasannya di error dan console).
 // archive = { getTile(z, x, y), minZoom, maxZoom, bounds: [minLng, minLat, maxLng, maxLat],

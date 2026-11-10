@@ -77,6 +77,32 @@ describe("mapoffline.js", () => {
         assert.equal(await archive.getTile(1, 1, 1).then(colorOf).then(String), "255,255,0");
         assert.equal(await archive.getTile(2, 0, 0), null);
     });
+    test("server yang merusak Range: seluruh file diunduh sekali", async () => {
+        const blob = await makePMTiles();
+        const url = URL.createObjectURL(blob);
+        const original = window.fetch;
+        let ranged = 0;
+        let full = 0;
+        // Tiruan GitHub Pages: permintaan Range gagal di tingkat jaringan, permintaan biasa berhasil.
+        window.fetch = (input, init = {}) => {
+            if (init.headers && init.headers.Range) {
+                ranged++;
+                return Promise.reject(new TypeError("Failed to fetch"));
+            }
+            full++;
+            return original(input, init);
+        };
+        try {
+            const archive = await openPMTiles(url);
+            assert.deepEqual(await colorOf(await archive.getTile(1, 0, 1)), [0, 0, 255]);
+            await archive.getTile(0, 0, 0);
+            assert.equal(ranged, 1, "Range dicoba sekali saja");
+            assert.equal(full, 1, "seluruh file diunduh sekali");
+        } finally {
+            window.fetch = original;
+            URL.revokeObjectURL(url);
+        }
+    });
     test("bukan PMTiles: null dengan alasan", async () => {
         let error = null;
         const archive = await openPMTiles(new Blob(["bukan pmtiles sama sekali, hanya teks biasa yang cukup panjang untuk header 127 byte ............................................................"]), (value, message) => { error = message; });

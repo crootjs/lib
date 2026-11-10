@@ -1784,8 +1784,9 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/mapoffline.js" {
      */
     export function tileId(z: any, x: any, y: any): any;
     /**
-     * Membuka file PMTiles. source: URL (server harus mengizinkan header Range; GitHub Pages,
-     * Cloudflare R2, S3, dan nginx biasa sudah), atau File/Blob dari <input type="file">.
+     * Membuka file PMTiles. source: URL, atau File/Blob dari <input type="file">. URL dibaca
+     * sepotong-sepotong lewat HTTP Range (Cloudflare R2, S3, nginx biasa); server yang tidak
+     * melayani Range dengan benar membuat seluruh file diunduh sekali.
      * responseFunction(archive, error) dipanggil sekali; juga mengembalikan Promise berisi archive
      * (atau null kalau gagal - alasannya di error dan console).
      * archive = { getTile(z, x, y), minZoom, maxZoom, bounds: [minLng, minLat, maxLng, maxLat],
@@ -1802,8 +1803,9 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/mapoffline.min.js" {
      */
     export function tileId(z: any, x: any, y: any): any;
     /**
-     * Membuka file PMTiles. source: URL (server harus mengizinkan header Range; GitHub Pages,
-     * Cloudflare R2, S3, dan nginx biasa sudah), atau File/Blob dari <input type="file">.
+     * Membuka file PMTiles. source: URL, atau File/Blob dari <input type="file">. URL dibaca
+     * sepotong-sepotong lewat HTTP Range (Cloudflare R2, S3, nginx biasa); server yang tidak
+     * melayani Range dengan benar membuat seluruh file diunduh sekali.
      * responseFunction(archive, error) dipanggil sekali; juga mengembalikan Promise berisi archive
      * (atau null kalau gagal - alasannya di error dan console).
      * archive = { getTile(z, x, y), minZoom, maxZoom, bounds: [minLng, minLat, maxLng, maxLat],
