@@ -2,6 +2,13 @@
 
 All notable changes to CrootJS. Versions are git tags, served by jsDelivr as `https://cdn.jsdelivr.net/gh/crootjs/lib@<version>/<module>.js`; each is also a [GitHub release](https://github.com/crootjs/lib/releases).
 
+## [0.0.32](https://github.com/crootjs/lib/releases/tag/v0.0.32) - 2026-11-23
+
+**croot.min.css is minified again**
+
+- **croot.css** - jsDelivr's minifier (clean-css 5.3.3) rejected the `@property` rules, so `croot.min.css` from 0.0.31 was served unminified (about 3.3 KB gzipped instead of 2.1 KB). `--croot-gap` and `--croot-min` are now kept from passing down to child elements by resetting them on every element inside the layer, with the same result: a value set on one element doesn't change nested `.grid`/`.stack` spacing.
+- **Release workflow** - after a release, every `.min.js` and `croot.min.css` is requested from jsDelivr once, and any that answers 404 (a stale cache from requests made before the tag existed, as happened with `storage.min.js` for 0.0.31) is purged and checked again.
+
 ## [0.0.31](https://github.com/crootjs/lib/releases/tag/v0.0.31) - 2026-11-23
 
 **croot.css: a small, green CSS framework**

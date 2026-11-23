@@ -71,6 +71,29 @@ jobs:
           echo "jsDelivr belum menyajikan lib@$VERSION setelah 20 menit" >&2
           exit 1
 
+      - name: Pastikan semua file .min tersedia di jsDelivr
+        if: steps.release.outputs.released
+        env:
+          VERSION: ${{ steps.release.outputs.released }}
+        run: |
+          # jsDelivr bisa menyimpan jawaban 404 untuk file yang diminta sebelum tag ada (misalnya
+          # dari docs/contoh yang sudah memakai versi baru). File seperti itu di-purge lalu dicek lagi.
+          failed=""
+          for file in $(ls *.js | grep -v '\.min\.js$' | sed 's/\.js$/.min.js/') croot.min.css; do
+            url="https://cdn.jsdelivr.net/gh/crootjs/lib@$VERSION/$file"
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$url")
+            if [ "$code" != 200 ]; then
+              curl -s -o /dev/null "https://purge.jsdelivr.net/gh/crootjs/lib@$VERSION/$file"
+              sleep 5
+              code=$(curl -s -o /dev/null -w '%{http_code}' "$url")
+            fi
+            echo "$file $code"
+            [ "$code" = 200 ] || failed="$failed $file"
+          done
+          if [ -n "$failed" ]; then
+            echo "::warning::Belum tersedia di jsDelivr:$failed"
+          fi
+
       - name: Naikkan pin di repo ini
         if: steps.release.outputs.released
         env:

@@ -7,17 +7,6 @@
 
 @layer croot.tokens, croot.base, croot.layout, croot.components;
 
-/* Pengatur tata letak per elemen (style.css halaman: .daftar { --croot-gap: 2rem; }) tidak
-   diwariskan, supaya .grid atau .stack di dalamnya tetap memakai jarak bawaannya sendiri. */
-@property --croot-gap {
-    syntax: "*";
-    inherits: false;
-}
-
-@property --croot-min {
-    syntax: "*";
-    inherits: false;
-}
 
 @layer croot.tokens {
     :root {
@@ -324,6 +313,16 @@
 }
 
 @layer croot.layout {
+    /* Pengatur tata letak per elemen (style.css halaman: .daftar { --croot-gap: 2rem; }) tidak
+       turun ke anak-anaknya: setiap elemen mengembalikannya ke nilai awal, dan aturan halaman
+       (di luar layer) tetap menang untuk elemen yang memasangnya. Supaya .grid atau .stack di
+       dalamnya tetap memakai jarak bawaannya sendiri. Tidak memakai @property, yang belum
+       dikenal clean-css (pemerkecil .min.css di jsDelivr). */
+    * {
+        --croot-gap: initial;
+        --croot-min: initial;
+    }
+
     /* Lebar terbatas di tengah, dengan jarak tepi 16 px di layar ponsel. */
     .container {
         width: 100%;
