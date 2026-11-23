@@ -5,7 +5,8 @@ setelah uji lolos (.github/workflows/test.yml):
 - Setiap versi di CHANGELOG.md yang tag-nya ada tapi belum punya GitHub Release -> release
   dibuat dengan judul dan isi bagian versi itu. Yang terbaru ditandai "Latest".
 
-Push yang tidak mengubah versi teratas (misalnya "bump CDN pins") tidak membuat apa-apa.
+Push yang tidak mengubah versi teratas (misalnya "bump CDN pins") tidak membuat apa-apa. Kalau
+tag baru dibuat, versinya ditulis ke $GITHUB_OUTPUT sebagai `released` untuk langkah berikutnya.
 Butuh git dan gh (sudah ada di runner GitHub). DRY_RUN=1 hanya mencetak rencananya.
 
     python3 tools/release.py
@@ -62,6 +63,11 @@ def main():
         act("git", "tag", newest_tag)
         act("git", "push", "origin", newest_tag)
         tags.add(newest_tag)
+        # Langkah workflow berikutnya (pin, repo lain) hanya jalan kalau versi baru dibuat di sini.
+        output = os.environ.get("GITHUB_OUTPUT")
+        if output and not DRY_RUN:
+            with open(output, "a", encoding="utf-8") as file:
+                file.write(f"released={newest['version']}\n")
 
     # Dari yang terlama, supaya yang terbaru dibuat terakhir dan menjadi "Latest".
     for entry in reversed(entries):

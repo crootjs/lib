@@ -1,6 +1,9 @@
 # Setiap push dan pull request: jalankan tests/index.html di Chromium, Firefox, dan WebKit headless.
 # Setiap push ke main yang lolos uji: buat tag dan GitHub Release dari CHANGELOG.md
-# (tools/release.py) - hanya kalau versi teratasnya belum punya tag/release.
+# (tools/release.py) - hanya kalau versi teratasnya belum punya tag/release. Kalau versi baru
+# dibuat: tunggu jsDelivr, naikkan pin di README repo ini, lalu kirim repository_dispatch
+# "lib-released" ke crootjs/docs, crootjs/examples, dan crootjs/crootjs.github.io, yang menaikkan
+# pin, membangun ulang sitemap/llms-full, menjalankan uji live, dan mengirim notifikasi.
 # Playwright (Python) hanya dipakai untuk menjalankan uji; pengguna CrootJS tetap tanpa npm.
 name: test
 
@@ -34,7 +37,7 @@ jobs:
     needs: browser
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 30  # termasuk menunggu jsDelivr
     permissions:
       contents: write
     concurrency: release
@@ -43,9 +46,53 @@ jobs:
         with:
           fetch-depth: 0
       - name: Tag dan GitHub Release dari CHANGELOG.md
+        id: release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898341+github-actions[bot]@users.noreply.github.com"
           python3 tools/release.py
+
+      # Sisanya hanya kalau push ini membuat versi baru.
+      - name: Tunggu jsDelivr menyajikan versi baru
+        if: steps.release.outputs.released
+        env:
+          VERSION: ${{ steps.release.outputs.released }}
+        run: |
+          # File .min.js dibuat jsDelivr saat pertama diminta dan sempat 404 beberapa menit.
+          for i in $(seq 1 60); do
+            js=$(curl -s -o /dev/null -w '%{http_code}' "https://cdn.jsdelivr.net/gh/crootjs/lib@$VERSION/api.js")
+            min=$(curl -s -o /dev/null -w '%{http_code}' "https://cdn.jsdelivr.net/gh/crootjs/lib@$VERSION/api.min.js")
+            echo "api.js $js, api.min.js $min"
+            [ "$js$min" = "200200" ] && exit 0
+            sleep 20
+          done
+          echo "jsDelivr belum menyajikan lib@$VERSION setelah 20 menit" >&2
+          exit 1
+
+      - name: Naikkan pin di repo ini
+        if: steps.release.outputs.released
+        env:
+          VERSION: ${{ steps.release.outputs.released }}
+        run: |
+          sh tools/bump-pins.sh "$VERSION"
+          if git diff --quiet; then exit 0; fi
+          git commit -am "bump pins to lib@$VERSION"
+          # Push dengan GITHUB_TOKEN tidak memicu workflow ini lagi.
+          git push origin HEAD:main
+
+      - name: Beri tahu docs, examples, dan landing page
+        if: steps.release.outputs.released
+        env:
+          VERSION: ${{ steps.release.outputs.released }}
+          GH_TOKEN: ${{ secrets.CROOTJS_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::Secret CROOTJS_DISPATCH_TOKEN belum dipasang; pin di docs, examples, dan landing page harus dinaikkan manual."
+            exit 0
+          fi
+          for repo in docs examples crootjs.github.io; do
+            gh api "repos/crootjs/$repo/dispatches" -f event_type=lib-released -f "client_payload[version]=$VERSION"
+            echo "crootjs/$repo diberi tahu"
+          done
