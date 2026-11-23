@@ -2,6 +2,18 @@
 
 All notable changes to CrootJS. Versions are git tags, served by jsDelivr as `https://cdn.jsdelivr.net/gh/crootjs/lib@<version>/<module>.js`; each is also a [GitHub release](https://github.com/crootjs/lib/releases).
 
+## [0.0.29](https://github.com/crootjs/lib/releases/tag/v0.0.29) - 2026-11-23
+
+**api.js options and response headers, storage.js survives blocked storage**
+
+Based on feedback from using `api.js` and `storage.js` on a static landing page.
+
+- **api.js** - `getJSON`/`postJSON`/`putJSON`/`deleteJSON` send `Content-Type: application/json` only when there is a body, so a plain `getJSON` no longer triggers a CORS preflight and works against static hosts. The argument after `responseFunction` may be an options object `{ headers, timeout, cache }` (the `tokenkey, tokenvalue` pair still works). Results also carry `headers` (the response `Headers`), `error` (`"timeout"`, `"offline"` or `"network"` when `status` is 0) and `cached`. `cache: { key, ttl }` on `getJSON` keeps successful results in localStorage for `ttl` seconds, then revalidates with `If-None-Match`; a `304` returns the stored data with its stored status (200) and `cached: true`. Failures in every `api.js` function are logged with `console.warn` instead of `console.log`.
+- **storage.js** - blocked or full storage (private mode, strict privacy settings) no longer throws: getters return `null`, setters return `false` (`true` when saved), with one console warning.
+- **mapmodel.js** - the model's origin now lands exactly on its map point; the canvas offset ignored perspective and placed the base up to 5 px too high.
+- **mapoffline.js** - the HTTP Range fallback warning names the URL when it has no host (`blob:`).
+- **tests/** - 55 tests: request headers, timeout, cache with ETag, and blocked localStorage.
+
 ## [0.0.28](https://github.com/crootjs/lib/releases/tag/v0.0.28) - 2026-11-11
 
 **PMTiles on servers that break HTTP Range**

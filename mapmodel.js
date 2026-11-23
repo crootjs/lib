@@ -91,13 +91,17 @@ export function addModel(id, position, source, options = {}) {
             box.style.width = side + "px";
             box.style.height = side + "px";
         }
+        // Jarak kamera yang membuat 1 meter = 1/metersPerPixel piksel, seperti peta di bawahnya.
+        const focal = side / (2 * Math.tan(FOV * Math.PI / 360)); // piksel
+        const distance = focal * metersPerPixel / scale;
         // Kamera melihat ke atas titik asal model, setinggi tengah model; kanvasnya digeser ke atas
-        // sejauh itu (dilihat miring) supaya titik asal (0, 0, 0) tepat di titik peta.
-        const lift = bounds.center[1] * scale * Math.cos(pitch * Math.PI / 180) / metersPerPixel;
+        // sejauh proyeksi titik asal di bawah tengah kanvas, supaya (0, 0, 0) tepat di titik peta.
+        // Titik asal sedikit lebih jauh dari kamera daripada targetnya (perspektif), jadi jaraknya
+        // ikut dihitung.
+        const angle = pitch * Math.PI / 180;
+        const lift = bounds.center[1] * Math.cos(angle) * focal / (distance + bounds.center[1] * Math.sin(angle));
         const point = map.toPoint(current);
         box.style.transform = `translate(${point[0] - side / 2}px, ${point[1] - side / 2 - lift}px)`;
-        // Jarak kamera yang membuat 1 meter = 1/metersPerPixel piksel, seperti peta di bawahnya.
-        const distance = side * metersPerPixel / (scale * 2 * Math.tan(FOV * Math.PI / 360));
         setCameraView(box.id, { yaw: heading, pitch, distance, target: [0, bounds.center[1], 0] }, false);
     };
 

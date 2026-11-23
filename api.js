@@ -1,3 +1,5 @@
+import { getLocal, setLocal } from "./storage.js";
+
 const DEFAULT_TIMEOUT_MS = 15000;
 
 // Menambahkan AbortController+timeout ke sebuah requestOptions object.
@@ -10,84 +12,126 @@ function withTimeout(requestOptions, timeoutMs = DEFAULT_TIMEOUT_MS) {
     return { cancel: () => clearTimeout(timeoutId) };
 }
 
-function requestJSON(method, target_url, responseFunction, datajson, tokenkey, tokenvalue) {
-    let myHeaders = new Headers();
+// Jenis kegagalan jaringan untuk field error. Browser sengaja tidak membedakan CORS ditolak dan
+// server tak terjangkau (keduanya TypeError yang sama), jadi keduanya "network".
+function failure(error, timedOut) {
+    if (timedOut) return "timeout";
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return "offline";
+    return "network";
+}
 
-    // Jika token disediakan, tambahkan header token
-    if (tokenkey && tokenvalue) {
-        myHeaders.append(tokenkey, tokenvalue);
-    }
+// Argumen sesudah responseFunction: (tokenkey, tokenvalue) seperti dulu, atau satu object opsi
+// { headers, timeout, cache: { key, ttl } } (token bisa ditaruh di headers).
+function readOptions(tokenkey, tokenvalue) {
+    if (tokenkey && typeof tokenkey === "object") return tokenkey;
+    return tokenkey && tokenvalue ? { headers: { [tokenkey]: tokenvalue } } : {};
+}
 
-    myHeaders.append("Content-Type", "application/json");
-    myHeaders.append("Accept", "application/json");
-
-    let requestOptions = {
-        method,
-        redirect: 'follow',
-        headers: myHeaders
-    };
-    const { cancel } = withTimeout(requestOptions);
-    if (datajson !== undefined) {
-        requestOptions.body = JSON.stringify(datajson);
-    }
+function requestJSON(method, target_url, responseFunction, datajson, options) {
+    const headers = new Headers(options.headers || {});
+    if (!headers.has("Accept")) headers.set("Accept", "application/json");
+    // Content-Type hanya kalau ada body: GET dengan Content-Type: application/json memicu
+    // preflight CORS, yang ditolak host statis (GitHub Pages, raw.githubusercontent.com).
+    if (datajson !== undefined && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
 
     // Hasilnya dikirim ke responseFunction (kalau ada) dan juga menjadi isi Promise yang
     // dikembalikan, jadi bisa dipakai dengan callback maupun await. Promise-nya tidak pernah
-    // reject: kegagalan jaringan juga berupa { status: 0, data: null }.
+    // reject: kegagalan jaringan juga berupa { status: 0, data: null, error }.
     const respond = result => {
         if (typeof responseFunction === "function") responseFunction(result);
         return result;
     };
+
+    // Cache di localStorage, hanya untuk GET: selama ttl detik tidak ada request sama sekali;
+    // sesudahnya, kalau server memberi ETag, request membawa If-None-Match dan balasan 304
+    // memakai data yang tersimpan.
+    const cache = method === "GET" && options.cache && options.cache.key ? options.cache : null;
+    const stored = cache ? getLocal(cache.key) : null;
+    if (stored && Date.now() < stored.expiresAt) {
+        return Promise.resolve(respond({ status: stored.status, data: stored.data, headers: new Headers(), error: null, cached: true }));
+    }
+    if (stored && stored.etag && !headers.has("If-None-Match")) headers.set("If-None-Match", stored.etag);
+
+    const requestOptions = { method, redirect: 'follow', headers };
+    if (datajson !== undefined) requestOptions.body = JSON.stringify(datajson);
+    let timedOut = false;
+    const controller = new AbortController();
+    requestOptions.signal = controller.signal;
+    const timeoutId = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+    }, Number(options.timeout) > 0 ? Number(options.timeout) : DEFAULT_TIMEOUT_MS);
+
     return fetch(target_url, requestOptions)
-        .then(response => {
-            const status = response.status;
-            return response.text().then(result => {
-                let parsedResult;
-                try {
-                    parsedResult = JSON.parse(result);
-                } catch (parseError) {
-                    parsedResult = null;
-                }
-                return { status, data: parsedResult };
-            });
-        })
+        .then(response => response.text().then(text => {
+            let data;
+            try {
+                data = JSON.parse(text);
+            } catch (parseError) {
+                data = null;
+            }
+            const result = { status: response.status, data, headers: response.headers, error: null, cached: false };
+            // 304 = data tersimpan masih berlaku. Statusnya dilaporkan seperti saat disimpan (200),
+            // supaya pemanggil cukup memeriksa status === 200; headers tetap milik balasan 304.
+            if (cache && response.status === 304 && stored) {
+                result.status = stored.status;
+                result.data = stored.data;
+                result.cached = true;
+            }
+            if (cache && (response.ok || result.cached)) {
+                setLocal(cache.key, {
+                    status: result.status,
+                    data: result.data,
+                    etag: response.headers.get("ETag") || (stored && stored.etag) || null,
+                    expiresAt: Date.now() + (Number(cache.ttl) || 0) * 1000
+                });
+            }
+            return result;
+        }))
         .catch(error => {
-            // Jaringan gagal, request timeout, atau CORS ditolak - fetch() tidak pernah
-            // resolve dengan sebuah response, jadi responseFunction tidak akan pernah
-            // dipanggil kalau ini tidak ditangani. status:0 menandakan kegagalan jaringan
-            // (bukan status HTTP asli, yang selalu >= 100).
-            console.log('error', error);
-            return { status: 0, data: null };
+            // Jaringan gagal, timeout, atau CORS ditolak: fetch() tidak memberi response sama
+            // sekali. status 0 bukan status HTTP asli (yang selalu >= 100).
+            const kind = failure(error, timedOut);
+            console.warn(`${method} ${target_url} gagal (${kind}):`, error.message);
+            return { status: 0, data: null, headers: new Headers(), error: kind, cached: false };
         })
-        .finally(cancel)
+        .finally(() => clearTimeout(timeoutId))
         .then(respond);
 }
 
-// Keempatnya mengembalikan Promise berisi { status, data }, selain memanggil responseFunction.
-// responseFunction boleh null untuk gaya await:
+// Keempatnya mengembalikan Promise berisi { status, data, headers, error, cached }, selain
+// memanggil responseFunction. responseFunction boleh null untuk gaya await:
 //   const { status, data } = await getJSON(url);
 //   const result = await postJSON(url, body, null, "login", token);
+// Sesudah responseFunction boleh (tokenkey, tokenvalue) atau satu object opsi:
+//   headers  object header tambahan, misalnya { Authorization: "Bearer ..." }
+//   timeout  milidetik sebelum request dibatalkan. Bawaan 15000.
+//   cache    { key, ttl }: simpan hasil GET yang berhasil di localStorage selama ttl detik
+//            (hanya getJSON), lalu tanyakan ulang dengan If-None-Match; 304 memberi data tersimpan
+//            dengan status aslinya (200) dan cached = true.
+// headers = Headers dari server (kosong kalau gagal atau dari cache); error = null, atau
+// "timeout" / "offline" / "network" saat status 0; cached = true kalau data dari cache.
 export function getJSON(target_url, responseFunction, tokenkey = null, tokenvalue = null) {
-    return requestJSON('GET', target_url, responseFunction, undefined, tokenkey, tokenvalue);
+    return requestJSON('GET', target_url, responseFunction, undefined, readOptions(tokenkey, tokenvalue));
 }
 
 export function postJSON(target_url, datajson, responseFunction, tokenkey = null, tokenvalue = null) {
-    return requestJSON('POST', target_url, responseFunction, datajson, tokenkey, tokenvalue);
+    return requestJSON('POST', target_url, responseFunction, datajson, readOptions(tokenkey, tokenvalue));
 }
 
 export function deleteJSON(target_url, datajson, responseFunction, tokenkey = null, tokenvalue = null) {
-    return requestJSON('DELETE', target_url, responseFunction, datajson, tokenkey, tokenvalue);
+    return requestJSON('DELETE', target_url, responseFunction, datajson, readOptions(tokenkey, tokenvalue));
 }
 
 export function putJSON(target_url, datajson, responseFunction, tokenkey = null, tokenvalue = null) {
-    return requestJSON('PUT', target_url, responseFunction, datajson, tokenkey, tokenvalue);
+    return requestJSON('PUT', target_url, responseFunction, datajson, readOptions(tokenkey, tokenvalue));
 }
 
 // errorFunction (opsional) dipanggil dengan sebuah Error kalau elemen tidak ada,
 // server membalas status non-2xx, jaringan gagal, atau request timeout.
 export function insertHTML(target_url,id,runFunction,errorFunction = null){
     const fail = (error) => {
-        console.log("Failed to load HTML from "+target_url+" into #"+id, error);
+        console.warn("Failed to load HTML from "+target_url+" into #"+id, error);
         if (typeof errorFunction === 'function') errorFunction(error);
     };
 
@@ -130,7 +174,7 @@ export function getDomHTML(target_url,domFunction){
         const htmlDom = parser.parseFromString(result, "text/html");
         domFunction(htmlDom);
     })
-    .catch(error => console.log('error', error))
+    .catch(error => console.warn(`Request ${target_url} gagal:`, error.message))
     .finally(cancel);
 }
 
@@ -158,7 +202,7 @@ export function postFile(target_url,id,formdataname,responseFunction) {
         responseFunction(parsed);
     })
     .catch(error => {
-        console.log('error', error);
+        console.warn(`Request ${target_url} gagal:`, error.message);
         responseFunction(null);
     })
     .finally(cancel);
@@ -194,7 +238,7 @@ export function postFileWithHeader(target_url,tokenkey,tokenvalue,id,formdatanam
         responseFunction(parsed);
     })
     .catch(error => {
-        console.log('error', error);
+        console.warn(`Request ${target_url} gagal:`, error.message);
         responseFunction(null);
     })
     .finally(cancel);
@@ -237,7 +281,7 @@ export function postFileJSON(target_url, tokenkey, tokenvalue, id, formdataname,
         responseFunction({ status: result.status, data: parsed });
     })
     .catch(error => {
-        console.log('error', error);
+        console.warn(`Request ${target_url} gagal:`, error.message);
         responseFunction({ status: 0, data: null });
     })
     .finally(cancel);
@@ -280,7 +324,7 @@ export function getFileWithHeader(target_url, tokenkey, tokenvalue, responseFunc
             }
         })
         .catch(error => {
-            console.log('error', error);
+            console.warn(`Request ${target_url} gagal:`, error.message);
             responseFunction({ status: 0 });
         })
         .finally(cancel);
@@ -309,7 +353,7 @@ export function getFileBytesWithHeader(target_url, tokenkey, tokenvalue, respons
             }
         })
         .catch(error => {
-            console.log('error', error);
+            console.warn(`Request ${target_url} gagal:`, error.message);
             responseFunction({ status: 0 });
         })
         .finally(cancel);

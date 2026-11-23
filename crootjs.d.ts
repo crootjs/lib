@@ -5,15 +5,23 @@
 
 declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/api.js" {
     /**
-     * Keempatnya mengembalikan Promise berisi { status, data }, selain memanggil responseFunction.
-     * responseFunction boleh null untuk gaya await:
+     * Keempatnya mengembalikan Promise berisi { status, data, headers, error, cached }, selain
+     * memanggil responseFunction. responseFunction boleh null untuk gaya await:
      * const { status, data } = await getJSON(url);
      * const result = await postJSON(url, body, null, "login", token);
+     * Sesudah responseFunction boleh (tokenkey, tokenvalue) atau satu object opsi:
+     * headers  object header tambahan, misalnya { Authorization: "Bearer ..." }
+     * timeout  milidetik sebelum request dibatalkan. Bawaan 15000.
+     * cache    { key, ttl }: simpan hasil GET yang berhasil di localStorage selama ttl detik
+     * (hanya getJSON), lalu tanyakan ulang dengan If-None-Match; 304 memberi data tersimpan
+     * dengan status aslinya (200) dan cached = true.
+     * headers = Headers dari server (kosong kalau gagal atau dari cache); error = null, atau
+     * "timeout" / "offline" / "network" saat status 0; cached = true kalau data dari cache.
      */
-    export function getJSON(target_url: string, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any }>;
-    export function postJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any }>;
-    export function deleteJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any }>;
-    export function putJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any }>;
+    export function getJSON(target_url: string, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "offline" | "network"; cached: boolean }>;
+    export function postJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "offline" | "network"; cached: boolean }>;
+    export function deleteJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "offline" | "network"; cached: boolean }>;
+    export function putJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "offline" | "network"; cached: boolean }>;
     /**
      * errorFunction (opsional) dipanggil dengan sebuah Error kalau elemen tidak ada,
      * server membalas status non-2xx, jaringan gagal, atau request timeout.
@@ -44,15 +52,23 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/api.js" {
 
 declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/api.min.js" {
     /**
-     * Keempatnya mengembalikan Promise berisi { status, data }, selain memanggil responseFunction.
-     * responseFunction boleh null untuk gaya await:
+     * Keempatnya mengembalikan Promise berisi { status, data, headers, error, cached }, selain
+     * memanggil responseFunction. responseFunction boleh null untuk gaya await:
      * const { status, data } = await getJSON(url);
      * const result = await postJSON(url, body, null, "login", token);
+     * Sesudah responseFunction boleh (tokenkey, tokenvalue) atau satu object opsi:
+     * headers  object header tambahan, misalnya { Authorization: "Bearer ..." }
+     * timeout  milidetik sebelum request dibatalkan. Bawaan 15000.
+     * cache    { key, ttl }: simpan hasil GET yang berhasil di localStorage selama ttl detik
+     * (hanya getJSON), lalu tanyakan ulang dengan If-None-Match; 304 memberi data tersimpan
+     * dengan status aslinya (200) dan cached = true.
+     * headers = Headers dari server (kosong kalau gagal atau dari cache); error = null, atau
+     * "timeout" / "offline" / "network" saat status 0; cached = true kalau data dari cache.
      */
-    export function getJSON(target_url: string, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any }>;
-    export function postJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any }>;
-    export function deleteJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any }>;
-    export function putJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any }>;
+    export function getJSON(target_url: string, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "offline" | "network"; cached: boolean }>;
+    export function postJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "offline" | "network"; cached: boolean }>;
+    export function deleteJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "offline" | "network"; cached: boolean }>;
+    export function putJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "offline" | "network"; cached: boolean }>;
     /**
      * errorFunction (opsional) dipanggil dengan sebuah Error kalau elemen tidak ada,
      * server membalas status non-2xx, jaringan gagal, atau request timeout.

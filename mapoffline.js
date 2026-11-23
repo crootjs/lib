@@ -120,7 +120,7 @@ function byteReader(source) {
                 // tipe file yang tidak dikenalnya) memberi potongan rusak atau ditolak browser.
                 // Cadangannya: unduh seluruh file sekali, lalu baca dari memori.
                 if (error.message.startsWith("HTTP")) throw error;
-                console.warn(`Server ${new URL(url).host} tidak melayani HTTP Range dengan benar; seluruh file PMTiles diunduh sekali.`);
+                console.warn(`${new URL(url).host || url} tidak melayani HTTP Range dengan benar; seluruh file PMTiles diunduh sekali.`);
             }
             ranged = false;
         }

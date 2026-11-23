@@ -15,10 +15,10 @@ SKIP = {"mongo.js"}  # untuk server, bukan browser
 FUNCTION = "(...args: any[]) => any"
 # Tipe hasil yang diketahui; selain ini `any`.
 RETURNS = {
-    ("api.js", "getJSON"): "Promise<{ status: number; data: any }>",
-    ("api.js", "postJSON"): "Promise<{ status: number; data: any }>",
-    ("api.js", "putJSON"): "Promise<{ status: number; data: any }>",
-    ("api.js", "deleteJSON"): "Promise<{ status: number; data: any }>",
+    ("api.js", "getJSON"): "Promise<{ status: number; data: any; headers: Headers; error: null | \"timeout\" | \"offline\" | \"network\"; cached: boolean }>",
+    ("api.js", "postJSON"): "Promise<{ status: number; data: any; headers: Headers; error: null | \"timeout\" | \"offline\" | \"network\"; cached: boolean }>",
+    ("api.js", "putJSON"): "Promise<{ status: number; data: any; headers: Headers; error: null | \"timeout\" | \"offline\" | \"network\"; cached: boolean }>",
+    ("api.js", "deleteJSON"): "Promise<{ status: number; data: any; headers: Headers; error: null | \"timeout\" | \"offline\" | \"network\"; cached: boolean }>",
     ("model3d.js", "loadModel"): "Promise<{ parts: string[]; triangles: number; bounds: { min: number[]; max: number[]; center: number[]; size: number[] } | null } | null>",
     ("model3dtools.js", "exportGLB"): "Promise<Blob | null>",
     ("model3dtools.js", "downloadGLB"): "Promise<Blob | null>",
