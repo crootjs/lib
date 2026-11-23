@@ -15,7 +15,7 @@ Exception: a third-party library's own CDN `<script src="...">` tag (e.g. Lucide
 ## Mandatory: no AI slop
 
 - **Never invent an API.** Check every CrootJS function name, parameter order, and option against https://croot.js.org/llms.txt (or the module's docs page) for the pinned version before using it. If it doesn't exist, write the code explicitly instead of guessing.
-- **Use CrootJS instead of re-implementing it** (`api.js` requests and uploads, `element.js` DOM helpers, `form.js` validation messages, `map.js` maps, `model3d.js` 3D, `toast.js` notifications), and don't add libraries that duplicate it (Leaflet, Three.js, axios, jQuery).
+- **Use CrootJS instead of re-implementing it** (`api.js` requests and uploads, `element.js` DOM helpers, `form.js` validation messages, `router.js` page routing, `table.js` data tables, `chart.js` charts, `markdown.js` Markdown, `qr.js` QR codes, `map.js` maps, `model3d.js` 3D, `toast.js` notifications, `croot.css` + `icons.css` styling and icons), and don't add libraries that duplicate it (Leaflet, Three.js, axios, jQuery, DataTables, Chart.js, marked, Bootstrap/Bulma, icon fonts).
 - **No dead weight:** no unused imports/variables/functions, commented-out code, `TODO` stubs, or files that aren't needed.
 - **Comments explain why, not what** — no line-by-line narration.
 - **No fake content:** no lorem ipsum, invented statistics, testimonials, or marketing claims; label sample data as sample.

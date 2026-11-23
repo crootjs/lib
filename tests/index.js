@@ -10,5 +10,15 @@ import "./mapextra.test.js";
 import "./more.test.js";
 import "./form.test.js";
 import "./css.test.js";
+import "./qr.test.js";
+import "./auth.test.js";
+import "./table.test.js";
+import "./icons.test.js";
+import "./pwa.test.js";
+
+import "./router.test.js";
+
+import "./chart.test.js";
+import "./markdown.test.js";
 
 run();

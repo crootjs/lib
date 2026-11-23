@@ -158,6 +158,10 @@
         font-weight: 600;
     }
 
+    /* Atribut align (dipakai markdown.js untuk tabel GFM, aman untuk CSP) tetap berlaku. */
+    :is(th, td)[align="center"] { text-align: center; }
+    :is(th, td)[align="right"] { text-align: right; }
+
     /* Fokus keyboard selalu terlihat; klik mouse tidak memunculkan cincin. */
     :focus-visible {
         outline: 3px solid var(--croot-focus);

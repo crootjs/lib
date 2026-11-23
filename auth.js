@@ -1,12 +1,10 @@
 import { setCookieWithExpireHour, getCookie } from "./cookie.js";
 import { postJSON } from "./api.js";
 import { redirect } from "./url.js";
-import { addCSSInHead, addJSInHead } from "./element.js";
-import Swal from 'https://cdn.jsdelivr.net/npm/sweetalert2@11/src/sweetalert2.js';
-
+import { addJSInHead } from "./element.js";
 import { refreshbutton, loginbutton } from "./template.js";
 import { isMobile as IsMobile } from "./useragent.js";
-import qrcode from 'https://cdn.skypack.dev/qrcode-generator-es6';
+import { qrSVG } from "./qr.js";
 
 // Lama (detik) soket uuid lama tetap dibiarkan terbuka sesudah QR berotasi.
 // Tanpa masa tenggang ini, pemindaian di detik-detik terakhir sebuah siklus
@@ -108,13 +106,26 @@ function reportLostConnection(wauthparam, wsconn, detail) {
     }
 }
 
+// Tombol sungguhan (bisa difokus dan ditekan dengan keyboard) berisi animasi
+// refreshbutton, untuk memuat ulang halaman supaya mendapat QR baru.
+function showRefreshButton(wauthparam) {
+    const qr = document.getElementById(wauthparam.id_qr);
+    if (!qr) {
+        return;
+    }
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "crootjs-qr-refresh";
+    button.setAttribute("aria-label", "Muat ulang untuk mendapatkan QR baru");
+    button.innerHTML = refreshbutton;
+    button.addEventListener("click", () => location.reload());
+    qr.replaceChildren(button);
+}
+
 // Menghentikan tampilan QR yang sudah pasti gagal dipindai dan menggantinya
 // dengan tombol muat ulang.
 function showDisconnected(wauthparam) {
-    const qr = document.getElementById(wauthparam.id_qr);
-    if (qr) {
-        qr.innerHTML = refreshbutton;
-    }
+    showRefreshButton(wauthparam);
     const counter = document.getElementById(wauthparam.id_counter);
     if (counter) {
         counter.innerHTML = "Connection Lost, Refresh Your Browser to get QR";
@@ -173,8 +184,7 @@ export async function qrController(wauthparam) {
         }
     }
     retireWebSocket(wauthparam);
-    var svg = document.getElementById(wauthparam.id_qr);
-    svg.innerHTML = refreshbutton;
+    showRefreshButton(wauthparam);
     document.getElementById(wauthparam.id_counter).innerHTML = "Refresh Your Browser to get QR";
 }
 
@@ -192,22 +202,23 @@ function setCounterandQR(wauthparam) {
 }
 
 function makeQrCode(text, wauthparam) {
-    const qrc = new qrcode(0, 'H');
-    qrc.addData(text);
-    qrc.make();
-    let qr = qrc.createSvgTag({});
-    var svg = document.getElementById(wauthparam.id_qr);
-    svg.innerHTML = qr;
+    document.getElementById(wauthparam.id_qr).innerHTML = qrSVG(text, { ecc: "H", label: "Kode QR login WhatsApp" });
 }
 
+// Di ponsel QR tidak bisa dipindai dari layar yang sama, jadi diganti tautan
+// yang langsung membuka WhatsApp.
 function makeLoginButton(text, wauthparam) {
-    var svg = document.getElementById(wauthparam.id_qr);
-    svg.innerHTML = loginbutton.replace("##URL##", text);
+    const link = document.createElement("a");
+    link.href = text;
+    link.className = "crootjs-wa-login";
+    link.setAttribute("aria-label", "Login dengan WhatsApp");
+    link.innerHTML = loginbutton;
+    document.getElementById(wauthparam.id_qr).replaceChildren(link);
 }
 
 function showQR(text, wauthparam) {
     if (typeof text === 'string' && text.length === 0) {
-        document.getElementById('qrcode').style.display = 'none';
+        document.getElementById(wauthparam.id_qr).hidden = true;
     } else {
         if (wauthparam.mobile) {
             makeLoginButton(text, wauthparam);
@@ -225,8 +236,6 @@ export function deleteCookie(cname) {
 function catcher(wauthparam, result) {
     if (result.length > 2) {
         let jsonres = JSON.parse(result);
-        console.log("catcher runner");
-        console.log(jsonres);
         wauthparam.loggedin = true;
         setCookieWithExpireHour(wauthparam.tokencookiename, jsonres.login, wauthparam.tokencookiehourslifetime);
         window.location.replace(wauthparam.redirect);
@@ -246,8 +255,6 @@ export function getParamsfromURL() {
 // Buat fungsi untuk memanggil gsi js dan menambahkan elemen div ke dalam DOM
 export async function appendGoogleSignin(client_id, target_url) {
     try {
-        // Memuat css sweet alert
-        await addCSSInHead("https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.css");
         // Memuat script Google Sign-In
         await addJSInHead("https://accounts.google.com/gsi/client");
         // Menginisialisasi Google Sign-In dan menetapkan gSignIn sebagai callback
@@ -273,33 +280,45 @@ export async function appendGoogleSignin(client_id, target_url) {
     }
 }
 
-async function gSignIn(response, target_url) {
-    try {
-        const gtoken = { token: response.credential };
-        await postJSON(target_url, "login", getCookie("login"), gtoken, responsePostFunction);
-    } catch (error) {
-        console.error("Network or JSON parsing error:", error);
-        Swal.fire({
-            icon: "error",
-            title: "Network Error",
-            text: "An error occurred while trying to log in. Please try again.",
+// Pesan modal dengan <dialog> bawaan browser (pengganti SweetAlert2). Resolve
+// saat ditutup, baik lewat tombol OK maupun tombol Esc.
+function showMessage(title, text) {
+    return new Promise(resolve => {
+        const dialog = document.createElement("dialog");
+        dialog.className = "crootjs-auth-message";
+        const heading = document.createElement("h2");
+        heading.textContent = title;
+        const body = document.createElement("p");
+        body.textContent = text;
+        const form = document.createElement("form");
+        form.method = "dialog";
+        const ok = document.createElement("button");
+        ok.textContent = "OK";
+        form.append(ok);
+        dialog.append(heading, body, form);
+        dialog.addEventListener("close", () => {
+            dialog.remove();
+            resolve();
         });
-    }
+        document.body.append(dialog);
+        dialog.showModal();
+    });
 }
 
-function responsePostFunction(response) {
+function gSignIn(response, target_url) {
+    return postJSON(target_url, { token: response.credential }, responsePostFunction, "login", getCookie("login"));
+}
+
+async function responsePostFunction(response) {
     if (response.status === 200 && response.data) {
-        console.log(response.data);
         setCookieWithExpireHour('login', response.data.token, 18);
         redirect("/dashboard");
-    } else {
-        console.error("Login failed:", response.data?.message || "Unknown error");
-        Swal.fire({
-            icon: "error",
-            title: "Login Failed",
-            text: response.data?.message || "Anda belum terdaftar dengan login google, silahkan tap atau scan qr dahulu untuk pendaftaran.",
-        }).then(() => {
-            redirect("/login");
-        });
+        return;
     }
+    if (response.status === 0) {
+        await showMessage("Gagal terhubung", "Server login tidak bisa dihubungi. Periksa koneksi internet lalu coba lagi.");
+        return;
+    }
+    await showMessage("Login gagal", response.data?.message || "Anda belum terdaftar dengan login google, silahkan tap atau scan qr dahulu untuk pendaftaran.");
+    redirect("/login");
 }

@@ -25,7 +25,7 @@ function injectStyles() {
     style.id = "crootjs-form-style";
     style.textContent = `
 .crootjs-field-error {
-    color: #b91c1c;
+    color: var(--croot-danger, #b91c1c);
     font-size: 0.875em;
     margin: 0.25em 0 0;
 }

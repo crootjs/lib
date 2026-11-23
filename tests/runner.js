@@ -48,6 +48,15 @@ export const assert = {
         const b = [].concat(expected);
         const same = a.length === b.length && a.every((value, i) => Math.abs(value - b[i]) <= tolerance);
         if (!same) throw new AssertionError(`${message} diharapkan ${format(expected)} ± ${tolerance}, dapat ${format(actual)}`.trim());
+    },
+    throws(run, type = Error, message = "") {
+        try {
+            run();
+        } catch (error) {
+            if (error instanceof type) return;
+            throw new AssertionError(`${message} diharapkan ${type.name}, dapat ${error}`.trim());
+        }
+        throw new AssertionError(`${message} diharapkan ${type.name}, tidak ada yang dilempar`.trim());
     }
 };
 

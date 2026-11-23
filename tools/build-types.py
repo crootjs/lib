@@ -10,7 +10,7 @@ import re
 
 LIB = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CDN = "https://cdn.jsdelivr.net/gh/crootjs/lib@*/"
-SKIP = {"mongo.js"}  # untuk server, bukan browser
+SKIP = {"mongo.js", "serviceworker.js"}  # untuk server / skrip klasik service worker, bukan modul halaman
 
 FUNCTION = "(...args: any[]) => any"
 # Tipe hasil yang diketahui; selain ini `any`.
@@ -34,6 +34,20 @@ RETURNS = {
     ("model3dtools.js", "startAR"): "Promise<{ supported: boolean; end(): void }>",
     ("model3dtools.js", "exportGLB"): "Promise<Blob | null>",
     ("model3dtools.js", "downloadGLB"): "Promise<Blob | null>",
+    ("qr.js", "qrMatrix"): "boolean[][]",
+    ("qr.js", "qrSVG"): "string",
+    ("qr.js", "renderQR"): "SVGSVGElement",
+    ("table.js", "createTable"): "{ setRows(rows: Record<string, any>[]): Promise<void>; refresh(): Promise<void>; ready: Promise<void>; getState(): { page: number; pageSize: number; sort: { key: string; dir: \"asc\" | \"desc\" } | null; query: string; total: number }; remove(): void } | null",
+    ("chart.js", "niceScale"): "{ min: number; max: number; step: number; ticks: number[] }",
+    ("chart.js", "createChart"): "{ element: HTMLElement; update(changes: Record<string, any>): void; remove(): void } | null",
+    ("router.js", "startRouter"): "{ navigate(path: string, options?: { replace?: boolean }): Promise<void>; href(path: string): string; current(): { path: string; params: Record<string, string>; query: URLSearchParams; pattern: string | null } | null; stop(): void }",
+    ("markdown.js", "markdownToHTML"): "string",
+    ("markdown.js", "renderMarkdown"): "string",
+    ("markdown.js", "getMarkdown"): "Promise<{ status: number; data: string; markdown: string; error: null | \"timeout\" | \"abort\" | \"offline\" | \"network\" }>",
+    ("pwa.js", "registerServiceWorker"): "Promise<{ ok: boolean; registration: ServiceWorkerRegistration | null; error: \"insecure\" | \"unsupported\" | \"failed\" | null }>",
+    ("pwa.js", "onNetworkChange"): "() => void",
+    ("pwa.js", "isStandalone"): "boolean",
+    ("pwa.js", "installButton"): "void",
 }
 
 

@@ -44,4 +44,11 @@ describe("croot.css", () => {
         assert.equal(page.style(page.doc.getElementById("g")).rowGap, "16px");
         page.frame.remove();
     });
+    test("atribut align pada th/td tetap berlaku (tabel markdown.js)", async () => {
+        const page = await frameWithCSS('<table><tr><th id="h" align="center">A</th><td id="d" align="right">1</td><td id="l">x</td></tr></table>');
+        assert.equal(page.style(page.doc.getElementById("h")).textAlign, "center");
+        assert.equal(page.style(page.doc.getElementById("d")).textAlign, "right");
+        assert.equal(page.style(page.doc.getElementById("l")).textAlign, "left");
+        page.frame.remove();
+    });
 });

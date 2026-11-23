@@ -179,6 +179,30 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/auth.min.js" {
     export const IsMobile: any;
 }
 
+declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/chart.js" {
+    /**
+     * Skala sumbu dengan angka bulat (kelipatan 1, 2, 2,5, atau 5 dikali 10^n) yang mencakup min..max.
+     */
+    export function niceScale(min: any, max: any, maxTicks?: number): { min: number; max: number; step: number; ticks: number[] };
+    /**
+     * Membuat grafik di dalam elemen `id`. Mengembalikan { element, update(changes), remove() },
+     * atau null kalau elemennya tidak ada.
+     */
+    export function createChart(id: string, config: any): { element: HTMLElement; update(changes: Record<string, any>): void; remove(): void } | null;
+}
+
+declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/chart.min.js" {
+    /**
+     * Skala sumbu dengan angka bulat (kelipatan 1, 2, 2,5, atau 5 dikali 10^n) yang mencakup min..max.
+     */
+    export function niceScale(min: any, max: any, maxTicks?: number): { min: number; max: number; step: number; ticks: number[] };
+    /**
+     * Membuat grafik di dalam elemen `id`. Mengembalikan { element, update(changes), remove() },
+     * atau null kalau elemennya tidak ada.
+     */
+    export function createChart(id: string, config: any): { element: HTMLElement; update(changes: Record<string, any>): void; remove(): void } | null;
+}
+
 declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/config.js" {
     export const DefaultFailer: any;
     export const DefaultSuccesser: any;
@@ -2281,6 +2305,54 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/mapvector.min.js" {
     export const DEFAULT_VECTOR_STYLE: any;
 }
 
+declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/markdown.js" {
+    /**
+     * Mengubah teks Markdown menjadi string HTML. Semua HTML mentah di masukan di-escape.
+     * options (semua opsional):
+     * headingIds  true: judul diberi id slug ("Cara Pakai" → id="cara-pakai") untuk tautan #anchor
+     * idPrefix    awalan id judul, mis. "md-", supaya tidak bentrok dengan id lain di halaman
+     * linkTarget  target untuk tautan http(s), mis. "_blank" (otomatis rel="noopener noreferrer")
+     * linkRel     rel untuk tautan http(s), mis. "nofollow"
+     */
+    export function markdownToHTML(markdown: any, options?: Record<string, any>): string;
+    /**
+     * Mengisi elemen id dengan hasil markdownToHTML. Mengembalikan string HTML-nya.
+     */
+    export function renderMarkdown(id: string, markdown: any, options?: Record<string, any>): string;
+    /**
+     * Mengambil file Markdown dari url lalu mengubahnya menjadi HTML. Hasil { status, data, markdown,
+     * error } dikirim ke responseFunction (boleh null) dan menjadi isi Promise yang tidak pernah
+     * reject. data = HTML dan markdown = teks asli kalau status 2xx, selain itu keduanya "".
+     * options: semua opsi markdownToHTML, ditambah timeout (ms, bawaan 15000) dan signal (AbortSignal).
+     * Gagal jaringan: status 0, error "timeout" / "abort" / "offline" / "network".
+     */
+    export function getMarkdown(url: string, responseFunction?: (...args: any[]) => any, options?: Record<string, any>): Promise<{ status: number; data: string; markdown: string; error: null | "timeout" | "abort" | "offline" | "network" }>;
+}
+
+declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/markdown.min.js" {
+    /**
+     * Mengubah teks Markdown menjadi string HTML. Semua HTML mentah di masukan di-escape.
+     * options (semua opsional):
+     * headingIds  true: judul diberi id slug ("Cara Pakai" → id="cara-pakai") untuk tautan #anchor
+     * idPrefix    awalan id judul, mis. "md-", supaya tidak bentrok dengan id lain di halaman
+     * linkTarget  target untuk tautan http(s), mis. "_blank" (otomatis rel="noopener noreferrer")
+     * linkRel     rel untuk tautan http(s), mis. "nofollow"
+     */
+    export function markdownToHTML(markdown: any, options?: Record<string, any>): string;
+    /**
+     * Mengisi elemen id dengan hasil markdownToHTML. Mengembalikan string HTML-nya.
+     */
+    export function renderMarkdown(id: string, markdown: any, options?: Record<string, any>): string;
+    /**
+     * Mengambil file Markdown dari url lalu mengubahnya menjadi HTML. Hasil { status, data, markdown,
+     * error } dikirim ke responseFunction (boleh null) dan menjadi isi Promise yang tidak pernah
+     * reject. data = HTML dan markdown = teks asli kalau status 2xx, selain itu keduanya "".
+     * options: semua opsi markdownToHTML, ditambah timeout (ms, bawaan 15000) dan signal (AbortSignal).
+     * Gagal jaringan: status 0, error "timeout" / "abort" / "offline" / "network".
+     */
+    export function getMarkdown(url: string, responseFunction?: (...args: any[]) => any, options?: Record<string, any>): Promise<{ status: number; data: string; markdown: string; error: null | "timeout" | "abort" | "offline" | "network" }>;
+}
+
 declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/model3d.js" {
     /**
      * Membuat penampil 3D di dalam elemen id (biasanya <div> yang sudah diberi tinggi lewat CSS).
@@ -2729,6 +2801,128 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/model3dtools.min.js" {
     export function downloadGLB(id: string, filename?: string, responseFunction?: (...args: any[]) => any): Promise<Blob | null>;
 }
 
+declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/pwa.js" {
+    /**
+     * Mendaftarkan service worker situs Anda (file di domain sendiri, mis. "sw.js" di samping index.html).
+     * options (semua opsional):
+     * scope     folder yang dikendalikan. Bawaan folder tempat file service worker berada.
+     * onUpdate  function({ registration, activate }) saat versi baru sudah terpasang dan menunggu.
+     * activate() mengaktifkan versi itu lalu memuat ulang halaman. Kalau tidak diisi,
+     * tampil pemberitahuan bawaan dengan tombol "Muat ulang".
+     * Mengembalikan Promise { ok, registration, error } yang tidak pernah reject. error: "insecure"
+     * (bukan https/localhost), "unsupported" (browser tanpa service worker), atau "failed" (file
+     * tidak ditemukan atau error di dalamnya; detailnya di console).
+     */
+    export function registerServiceWorker(url?: string, options?: Record<string, any>): Promise<{ ok: boolean; registration: ServiceWorkerRegistration | null; error: "insecure" | "unsupported" | "failed" | null }>;
+    /**
+     * Memanggil callback(online) sekarang dan setiap kali koneksi putus atau tersambung lagi.
+     * online bernilai false hanya kalau perangkat benar-benar tanpa jaringan; tersambung ke Wi-Fi
+     * tanpa internet tetap dianggap online oleh browser.
+     * Mengembalikan function untuk berhenti mendengarkan.
+     */
+    export function onNetworkChange(callback: (...args: any[]) => any): () => void;
+    /**
+     * true kalau halaman dibuka sebagai aplikasi terpasang (jendela sendiri, bukan tab browser).
+     */
+    export function isStandalone(): boolean;
+    /**
+     * Tombol "Pasang aplikasi": disembunyikan (atribut hidden) dan hanya tampil saat browser
+     * menyatakan aplikasi bisa dipasang (event beforeinstallprompt; Chrome, Edge, Samsung Internet).
+     * Klik membuka dialog pasang browser. Firefox dan Safari tidak punya event ini, jadi tombolnya
+     * tetap tersembunyi; di sana pengguna memasang lewat menu browser.
+     * options.onChoice(outcome) dipanggil sesudah dialog ditutup: "accepted" atau "dismissed".
+     */
+    export function installButton(id: string, options?: Record<string, any>): void;
+}
+
+declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/pwa.min.js" {
+    /**
+     * Mendaftarkan service worker situs Anda (file di domain sendiri, mis. "sw.js" di samping index.html).
+     * options (semua opsional):
+     * scope     folder yang dikendalikan. Bawaan folder tempat file service worker berada.
+     * onUpdate  function({ registration, activate }) saat versi baru sudah terpasang dan menunggu.
+     * activate() mengaktifkan versi itu lalu memuat ulang halaman. Kalau tidak diisi,
+     * tampil pemberitahuan bawaan dengan tombol "Muat ulang".
+     * Mengembalikan Promise { ok, registration, error } yang tidak pernah reject. error: "insecure"
+     * (bukan https/localhost), "unsupported" (browser tanpa service worker), atau "failed" (file
+     * tidak ditemukan atau error di dalamnya; detailnya di console).
+     */
+    export function registerServiceWorker(url?: string, options?: Record<string, any>): Promise<{ ok: boolean; registration: ServiceWorkerRegistration | null; error: "insecure" | "unsupported" | "failed" | null }>;
+    /**
+     * Memanggil callback(online) sekarang dan setiap kali koneksi putus atau tersambung lagi.
+     * online bernilai false hanya kalau perangkat benar-benar tanpa jaringan; tersambung ke Wi-Fi
+     * tanpa internet tetap dianggap online oleh browser.
+     * Mengembalikan function untuk berhenti mendengarkan.
+     */
+    export function onNetworkChange(callback: (...args: any[]) => any): () => void;
+    /**
+     * true kalau halaman dibuka sebagai aplikasi terpasang (jendela sendiri, bukan tab browser).
+     */
+    export function isStandalone(): boolean;
+    /**
+     * Tombol "Pasang aplikasi": disembunyikan (atribut hidden) dan hanya tampil saat browser
+     * menyatakan aplikasi bisa dipasang (event beforeinstallprompt; Chrome, Edge, Samsung Internet).
+     * Klik membuka dialog pasang browser. Firefox dan Safari tidak punya event ini, jadi tombolnya
+     * tetap tersembunyi; di sana pengguna memasang lewat menu browser.
+     * options.onChoice(outcome) dipanggil sesudah dialog ditutup: "accepted" atau "dismissed".
+     */
+    export function installButton(id: string, options?: Record<string, any>): void;
+}
+
+declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/qr.js" {
+    /**
+     * Matriks modul QR: array baris berisi true (gelap) / false (terang), tanpa margin.
+     * ecc: "L" (7%), "M" (15%, bawaan), "Q" (25%), "H" (30% bagian boleh rusak/tertutup).
+     */
+    export function qrMatrix(text: any, options?: Record<string, any>): boolean[][];
+    /**
+     * Kode QR sebagai teks SVG. Satu <path> untuk semua modul gelap, jadi ringan
+     * dan tajam di ukuran berapa pun; ukurannya diatur lewat CSS (width).
+     * options: ecc, margin (modul, bawaan 4 sesuai standar), color, background, label.
+     */
+    export function qrSVG(text: any, options?: Record<string, any>): string;
+    /**
+     * Mengganti isi elemen dengan kode QR. Mengembalikan elemen <svg>-nya.
+     */
+    export function renderQR(id: string, text: any, options?: Record<string, any>): SVGSVGElement;
+}
+
+declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/qr.min.js" {
+    /**
+     * Matriks modul QR: array baris berisi true (gelap) / false (terang), tanpa margin.
+     * ecc: "L" (7%), "M" (15%, bawaan), "Q" (25%), "H" (30% bagian boleh rusak/tertutup).
+     */
+    export function qrMatrix(text: any, options?: Record<string, any>): boolean[][];
+    /**
+     * Kode QR sebagai teks SVG. Satu <path> untuk semua modul gelap, jadi ringan
+     * dan tajam di ukuran berapa pun; ukurannya diatur lewat CSS (width).
+     * options: ecc, margin (modul, bawaan 4 sesuai standar), color, background, label.
+     */
+    export function qrSVG(text: any, options?: Record<string, any>): string;
+    /**
+     * Mengganti isi elemen dengan kode QR. Mengembalikan elemen <svg>-nya.
+     */
+    export function renderQR(id: string, text: any, options?: Record<string, any>): SVGSVGElement;
+}
+
+declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/router.js" {
+    /**
+     * Memulai router dan langsung menampilkan rute dari URL sekarang.
+     * routes: { "/pola/:param": view }. view = function(ctx), URL potongan HTML (string), atau
+     * { html, run }. Lihat docs/router.md untuk opsi dan isi ctx.
+     */
+    export function startRouter(routes: any, options?: Record<string, any>): { navigate(path: string, options?: { replace?: boolean }): Promise<void>; href(path: string): string; current(): { path: string; params: Record<string, string>; query: URLSearchParams; pattern: string | null } | null; stop(): void };
+}
+
+declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/router.min.js" {
+    /**
+     * Memulai router dan langsung menampilkan rute dari URL sekarang.
+     * routes: { "/pola/:param": view }. view = function(ctx), URL potongan HTML (string), atau
+     * { html, run }. Lihat docs/router.md untuk opsi dan isi ctx.
+     */
+    export function startRouter(routes: any, options?: Record<string, any>): { navigate(path: string, options?: { replace?: boolean }): Promise<void>; href(path: string): string; current(): { path: string; params: Record<string, string>; query: URLSearchParams; pattern: string | null } | null; stop(): void };
+}
+
 declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/storage.js" {
     /**
      * Fungsi untuk menyimpan data ke localStorage tanpa kadaluwarsa
@@ -2817,6 +3011,22 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/stp.min.js" {
     export function sendSTP(phoneNumber: any, captchaToken: any): Promise<any>;
     export function verifySTP(phoneNumber: any, password: any): Promise<any>;
     export function resendSTP(phoneNumber: any): Promise<any>;
+}
+
+declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/table.js" {
+    /**
+     * Membuat tabel di dalam elemen id. Isi elemen diganti. Lihat docs/table.md untuk opsi lengkap.
+     * Mengembalikan { setRows(rows), refresh(), getState(), remove() } atau null kalau elemen tidak ada.
+     */
+    export function createTable(id: string, options?: Record<string, any>): { setRows(rows: Record<string, any>[]): Promise<void>; refresh(): Promise<void>; ready: Promise<void>; getState(): { page: number; pageSize: number; sort: { key: string; dir: "asc" | "desc" } | null; query: string; total: number }; remove(): void } | null;
+}
+
+declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/table.min.js" {
+    /**
+     * Membuat tabel di dalam elemen id. Isi elemen diganti. Lihat docs/table.md untuk opsi lengkap.
+     * Mengembalikan { setRows(rows), refresh(), getState(), remove() } atau null kalau elemen tidak ada.
+     */
+    export function createTable(id: string, options?: Record<string, any>): { setRows(rows: Record<string, any>[]): Promise<void>; refresh(): Promise<void>; ready: Promise<void>; getState(): { page: number; pageSize: number; sort: { key: string; dir: "asc" | "desc" } | null; query: string; total: number }; remove(): void } | null;
 }
 
 declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/template.js" {
