@@ -82,11 +82,14 @@ jobs:
           for file in $(ls *.js | grep -v '\.min\.js$' | sed 's/\.js$/.min.js/') croot.min.css; do
             url="https://cdn.jsdelivr.net/gh/crootjs/lib@$VERSION/$file"
             code=$(curl -s -o /dev/null -w '%{http_code}' "$url")
-            if [ "$code" != 200 ]; then
+            # Memperkecil file butuh waktu, dan selama itu jawabannya bisa 404: purge, lalu coba
+            # lagi sampai sekitar satu menit.
+            for attempt in 1 2 3 4 5 6; do
+              [ "$code" = 200 ] && break
               curl -s -o /dev/null "https://purge.jsdelivr.net/gh/crootjs/lib@$VERSION/$file"
-              sleep 5
+              sleep 10
               code=$(curl -s -o /dev/null -w '%{http_code}' "$url")
-            fi
+            done
             echo "$file $code"
             [ "$code" = 200 ] || failed="$failed $file"
           done
