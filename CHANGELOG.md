@@ -2,6 +2,14 @@
 
 All notable changes to CrootJS. Versions are git tags, served by jsDelivr as `https://cdn.jsdelivr.net/gh/crootjs/lib@<version>/<module>.js`; each is also a [GitHub release](https://github.com/crootjs/lib/releases).
 
+## [0.0.31](https://github.com/crootjs/lib/releases/tag/v0.0.31) - 2026-11-23
+
+**croot.css: a small, green CSS framework**
+
+- **croot.css (new)** - one stylesheet, no JavaScript, no web fonts or images (about 2 KB gzipped from jsDelivr as `croot.min.css`). Plain HTML looks finished without classes: headings, text, links, code, tables, forms (inputs, selects, fieldsets, `aria-invalid`), buttons (`.secondary`, `.danger`, `.ghost`, and `.button` for links), `<dialog>`, `<details>`, progress. Layout classes `.container`, `.stack`, `.cluster`, `.grid` (auto-fitting columns), plus `.card`, `.badge`, `.alert` (`.success`, `.warning`, `.danger`), `.nav`, `.muted`, `.center`, `.visually-hidden`. Dark mode follows the device or `data-theme="light"`/`"dark"` on `<html>`; colors and spacing are `--croot-*` variables; `prefers-reduced-motion` is respected. Everything sits in `@layer croot`, so a page's own CSS always wins without `!important`; `--croot-gap` and `--croot-min` are registered as non-inherited so nested layouts keep their own spacing.
+- **tests/** - 85 tests, including croot.css (accent colors, dark theme, page CSS overriding the layer, non-inherited layout variables) in Chromium, Firefox and WebKit.
+- **Release automation** - after a new release the workflow waits for jsDelivr, bumps the pins in this README, and notifies docs, examples and the landing page, which bump their own pins, rebuild the sitemap and llms-full.txt, run the live tests and send a notification (`tools/bump-pins.sh`).
+
 ## [0.0.30](https://github.com/crootjs/lib/releases/tag/v0.0.30) - 2026-11-23
 
 **Uploads with progress, form validation, offline tile cache, vector PMTiles, keyboard drawing, 3D measuring and in-page AR**

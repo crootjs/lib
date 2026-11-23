@@ -1,0 +1,444 @@
+/* croot.css - framework CSS CrootJS. Satu file, tanpa JavaScript, tanpa web font dan gambar.
+   HTML biasa (judul, paragraf, tautan, form, tombol, tabel, dialog) langsung rapi tanpa kelas;
+   kelas hanya untuk tata letak (.container, .stack, .cluster, .grid) dan beberapa komponen
+   (.card, .badge, .alert, .nav). Mode gelap mengikuti sistem, atau dipaksa dengan
+   data-theme="light" / "dark" di <html>. Tema diubah lewat variabel --croot-*.
+   Semua aturan ada di @layer croot, jadi CSS halaman Anda selalu menang tanpa !important. */
+
+@layer croot.tokens, croot.base, croot.layout, croot.components;
+
+/* Pengatur tata letak per elemen (style.css halaman: .daftar { --croot-gap: 2rem; }) tidak
+   diwariskan, supaya .grid atau .stack di dalamnya tetap memakai jarak bawaannya sendiri. */
+@property --croot-gap {
+    syntax: "*";
+    inherits: false;
+}
+
+@property --croot-min {
+    syntax: "*";
+    inherits: false;
+}
+
+@layer croot.tokens {
+    :root {
+        color-scheme: light dark;
+        --croot-bg: #f8fafc;
+        --croot-surface: #ffffff;
+        --croot-text: #1e293b;
+        --croot-muted: #64748b;
+        --croot-border: #d4dbe3;
+        --croot-accent: #15803d;
+        --croot-accent-text: #ffffff;
+        --croot-danger: #b91c1c;
+        --croot-warning: #a16207;
+        --croot-success: #15803d;
+        --croot-info: #1d4ed8;
+        --croot-focus: #2563eb;
+        --croot-radius: 8px;
+        --croot-space: 1rem;
+        --croot-max: 72rem;
+        --croot-font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        --croot-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    /* Mode gelap: latar gelap juga menghemat daya di layar OLED. */
+    @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) {
+            --croot-bg: #0f172a;
+            --croot-surface: #1e293b;
+            --croot-text: #e2e8f0;
+            --croot-muted: #94a3b8;
+            --croot-border: #334155;
+            --croot-accent: #4ade80;
+            --croot-accent-text: #0f172a;
+            --croot-danger: #f87171;
+            --croot-warning: #facc15;
+            --croot-success: #4ade80;
+            --croot-info: #93c5fd;
+            --croot-focus: #93c5fd;
+        }
+    }
+
+    :root[data-theme="dark"] {
+        color-scheme: dark;
+        --croot-bg: #0f172a;
+        --croot-surface: #1e293b;
+        --croot-text: #e2e8f0;
+        --croot-muted: #94a3b8;
+        --croot-border: #334155;
+        --croot-accent: #4ade80;
+        --croot-accent-text: #0f172a;
+        --croot-danger: #f87171;
+        --croot-warning: #facc15;
+        --croot-success: #4ade80;
+        --croot-info: #93c5fd;
+        --croot-focus: #93c5fd;
+    }
+
+    :root[data-theme="light"] {
+        color-scheme: light;
+    }
+}
+
+@layer croot.base {
+    *, *::before, *::after {
+        box-sizing: border-box;
+    }
+
+    body {
+        margin: 0;
+        background-color: var(--croot-bg);
+        color: var(--croot-text);
+        font: 1rem/1.6 var(--croot-font);
+        -webkit-text-size-adjust: 100%;
+    }
+
+    h1, h2, h3, h4 {
+        line-height: 1.25;
+        margin: 1.5em 0 0.5em;
+    }
+
+    h1 { font-size: 2rem; }
+    h2 { font-size: 1.5rem; }
+    h3 { font-size: 1.2rem; }
+    h4 { font-size: 1rem; }
+
+    :is(h1, h2, h3, h4):first-child,
+    p:first-child {
+        margin-top: 0;
+    }
+
+    p, ul, ol, dl, table, pre, figure, blockquote {
+        margin: 0 0 var(--croot-space);
+    }
+
+    a {
+        color: var(--croot-accent);
+        text-underline-offset: 0.15em;
+    }
+
+    img, svg, video, canvas {
+        max-width: 100%;
+        height: auto;
+    }
+
+    hr {
+        border: 0;
+        border-top: 1px solid var(--croot-border);
+        margin: calc(var(--croot-space) * 1.5) 0;
+    }
+
+    code, kbd, pre, samp {
+        font-family: var(--croot-mono);
+        font-size: 0.9em;
+    }
+
+    :not(pre) > code {
+        padding: 0.1em 0.35em;
+        border-radius: 4px;
+        background-color: color-mix(in srgb, var(--croot-text) 8%, transparent);
+    }
+
+    pre {
+        overflow-x: auto;
+        padding: var(--croot-space);
+        border-radius: var(--croot-radius);
+        background-color: var(--croot-surface);
+        border: 1px solid var(--croot-border);
+    }
+
+    blockquote {
+        padding-left: var(--croot-space);
+        border-left: 4px solid var(--croot-border);
+        color: var(--croot-muted);
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    th, td {
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--croot-border);
+        text-align: left;
+        vertical-align: top;
+    }
+
+    th {
+        font-weight: 600;
+    }
+
+    /* Fokus keyboard selalu terlihat; klik mouse tidak memunculkan cincin. */
+    :focus-visible {
+        outline: 3px solid var(--croot-focus);
+        outline-offset: 2px;
+    }
+
+    label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 0.25rem;
+    }
+
+    label:has(> input[type="checkbox"], > input[type="radio"]) {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-weight: 400;
+        margin-right: var(--croot-space);
+    }
+
+    input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"]),
+    select,
+    textarea {
+        display: block;
+        width: 100%;
+        padding: 0.55rem 0.75rem;
+        border: 1px solid var(--croot-border);
+        border-radius: var(--croot-radius);
+        background-color: var(--croot-surface);
+        color: inherit;
+        font: inherit;
+    }
+
+    textarea {
+        min-height: 6rem;
+        resize: vertical;
+    }
+
+    :is(input, select, textarea)[aria-invalid="true"] {
+        border-color: var(--croot-danger);
+    }
+
+    input[type="checkbox"], input[type="radio"], input[type="range"], progress {
+        accent-color: var(--croot-accent);
+    }
+
+    input[type="file"] {
+        font: inherit;
+        max-width: 100%;
+    }
+
+
+    fieldset {
+        margin: 0 0 var(--croot-space);
+        padding: 0.75rem var(--croot-space);
+        border: 1px solid var(--croot-border);
+        border-radius: var(--croot-radius);
+    }
+
+    legend {
+        padding: 0 0.25rem;
+        font-weight: 600;
+    }
+
+    progress {
+        width: 100%;
+    }
+
+    button,
+    .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.4rem;
+        min-height: 2.5rem;
+        padding: 0.5rem 1.1rem;
+        border: 1px solid transparent;
+        border-radius: var(--croot-radius);
+        background-color: var(--croot-accent);
+        color: var(--croot-accent-text);
+        font: inherit;
+        font-weight: 600;
+        text-decoration: none;
+        cursor: pointer;
+    }
+
+    button:hover,
+    .button:hover {
+        filter: brightness(1.08);
+    }
+
+    button:disabled,
+    .button[aria-disabled="true"] {
+        opacity: 0.55;
+        cursor: not-allowed;
+        filter: none;
+    }
+
+    button.secondary,
+    .button.secondary {
+        background-color: transparent;
+        border-color: var(--croot-border);
+        color: var(--croot-text);
+    }
+
+    button.danger,
+    .button.danger {
+        background-color: var(--croot-danger);
+        color: var(--croot-accent-text);
+    }
+
+    button.ghost,
+    .button.ghost {
+        background-color: transparent;
+        color: var(--croot-accent);
+    }
+
+    dialog {
+        max-width: min(32rem, calc(100vw - 2rem));
+        padding: calc(var(--croot-space) * 1.5);
+        border: 1px solid var(--croot-border);
+        border-radius: var(--croot-radius);
+        background-color: var(--croot-surface);
+        color: var(--croot-text);
+    }
+
+    dialog::backdrop {
+        background-color: rgb(15 23 42 / 0.55);
+    }
+
+    details {
+        margin-bottom: var(--croot-space);
+    }
+
+    summary {
+        cursor: pointer;
+        font-weight: 600;
+    }
+
+    /* Pesan kesalahan form.js. */
+    .crootjs-field-error {
+        color: var(--croot-danger);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 0.01ms !important;
+            scroll-behavior: auto !important;
+        }
+    }
+}
+
+@layer croot.layout {
+    /* Lebar terbatas di tengah, dengan jarak tepi 16 px di layar ponsel. */
+    .container {
+        width: 100%;
+        max-width: var(--croot-max);
+        margin-inline: auto;
+        padding-inline: var(--croot-space);
+    }
+
+    /* Anak-anak bertumpuk ke bawah dengan jarak sama. */
+    .stack {
+        display: flex;
+        flex-direction: column;
+        gap: var(--croot-gap, var(--croot-space));
+    }
+
+    .stack > * {
+        margin: 0;
+    }
+
+    /* Anak-anak berjajar dan turun baris kalau tidak muat (tombol, tag, filter). */
+    .cluster {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--croot-gap, 0.5rem);
+    }
+
+    /* Kolom otomatis: sebanyak yang muat dengan lebar minimal --croot-min. */
+    .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(var(--croot-min, 16rem), 100%), 1fr));
+        gap: var(--croot-gap, var(--croot-space));
+        margin-bottom: var(--croot-space);
+    }
+
+    .center {
+        text-align: center;
+    }
+
+    .muted {
+        color: var(--croot-muted);
+    }
+
+    /* Tersembunyi di layar, tetap dibacakan pembaca layar. */
+    .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+    }
+}
+
+@layer croot.components {
+    .card {
+        padding: calc(var(--croot-space) * 1.25);
+        border: 1px solid var(--croot-border);
+        border-radius: var(--croot-radius);
+        background-color: var(--croot-surface);
+    }
+
+    .card > :last-child {
+        margin-bottom: 0;
+    }
+
+    .badge {
+        display: inline-block;
+        padding: 0.1rem 0.55rem;
+        border-radius: 999px;
+        background-color: color-mix(in srgb, var(--croot-accent) 15%, transparent);
+        color: var(--croot-text);
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+
+    .alert {
+        padding: 0.75rem var(--croot-space);
+        border: 1px solid var(--croot-info);
+        border-left-width: 4px;
+        border-radius: var(--croot-radius);
+        background-color: color-mix(in srgb, var(--croot-info) 10%, var(--croot-surface));
+        margin-bottom: var(--croot-space);
+    }
+
+    .alert.success { border-color: var(--croot-success); background-color: color-mix(in srgb, var(--croot-success) 10%, var(--croot-surface)); }
+    .alert.warning { border-color: var(--croot-warning); background-color: color-mix(in srgb, var(--croot-warning) 10%, var(--croot-surface)); }
+    .alert.danger { border-color: var(--croot-danger); background-color: color-mix(in srgb, var(--croot-danger) 10%, var(--croot-surface)); }
+
+    /* Bilah navigasi atas: nama situs di kiri, tautan di kanan, turun baris di ponsel. */
+    .nav {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem var(--croot-space);
+        padding-block: 0.75rem;
+        border-bottom: 1px solid var(--croot-border);
+    }
+
+    .nav ul {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem var(--croot-space);
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .nav a {
+        text-decoration: none;
+    }
+
+    .nav a[aria-current="page"] {
+        font-weight: 700;
+        text-decoration: underline;
+    }
+}
