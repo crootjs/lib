@@ -1101,61 +1101,67 @@ function render(state) {
         canvas.width = width;
         canvas.height = height;
     }
+    // Sesi AR WebXR memasang framebuffer-nya sendiri; gambar biasa selalu ke kanvas.
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, width, height);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-    const model = state.model;
     state.cam = cameraOf(state);
-    if (model) {
-        if (model.dirty) updateWorld(model);
-        const camera = state.cam;
-        const { program, uniforms } = state.program;
-        gl.useProgram(program);
-        gl.uniformMatrix4fv(uniforms.uViewProj, false, camera.viewProj);
-        gl.uniform3fv(uniforms.uEye, camera.eye);
-        // Lampu dari kiri atas di depan model, ikut berputar dengan kamera.
-        gl.uniform3fv(uniforms.uLight, normalize(add(add(scale(camera.up, 0.8), scale(camera.right, -0.45)), scale(camera.forward, -0.6))));
-        gl.uniform1i(uniforms.uTexture, 0);
-        gl.uniform1f(uniforms.uClipOn, state.clip ? 1 : 0);
-        if (state.clip) {
-            gl.uniform4fv(uniforms.uClip, state.clip.plane);
-            gl.uniform4fv(uniforms.uCap, state.clip.cap || [0, 0, 0, 0]);
-        }
-
-        const opaque = [];
-        const blended = [];
-        const visit = (node, color, highlight) => {
-            if (!node.visible) return;
-            const ownColor = node.color || color;
-            const lit = highlight || state.highlight.has(node);
-            node.primitives.forEach(primitive => {
-                const item = { node, primitive, color: ownColor, highlight: lit };
-                if ((ownColor ? ownColor[3] < 1 : primitive.material.alphaMode === "BLEND")) {
-                    item.depth = length(subtract(transformPoint(node.world, scale(add(primitive.bounds.min, primitive.bounds.max), 0.5)), camera.eye));
-                    blended.push(item);
-                } else {
-                    opaque.push(item);
-                }
-            });
-            node.children.forEach(child => visit(child, ownColor, lit));
-        };
-        model.roots.forEach(root => visit(root, null, false));
-
-        gl.enable(gl.DEPTH_TEST);
-        gl.depthMask(true);
-        gl.disable(gl.BLEND);
-        opaque.forEach(item => drawPrimitive(state, item));
-        if (blended.length) {
-            // Transparan digambar terakhir, dari yang terjauh, tanpa menulis kedalaman.
-            gl.enable(gl.BLEND);
-            gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-            gl.depthMask(false);
-            blended.sort((a, b) => b.depth - a.depth).forEach(item => drawPrimitive(state, item));
-            gl.depthMask(true);
-        }
-    }
+    if (state.model) drawModel(state, state.cam);
     state.renderHandlers.slice().forEach(runFunction => runFunction());
+}
+
+// Menggambar model dengan kamera { viewProj, eye } ke framebuffer dan viewport yang sedang
+// terpasang. camera.light (opsional) = arah lampu; bawaan dari kiri atas di depan model, ikut
+// berputar dengan kamera (perlu camera.up, right, forward). Dipakai render() dan AR WebXR.
+function drawModel(state, camera) {
+    const gl = state.gl;
+    const model = state.model;
+    if (model.dirty) updateWorld(model);
+    const { program, uniforms } = state.program;
+    gl.useProgram(program);
+    gl.uniformMatrix4fv(uniforms.uViewProj, false, camera.viewProj);
+    gl.uniform3fv(uniforms.uEye, camera.eye);
+    gl.uniform3fv(uniforms.uLight, camera.light || normalize(add(add(scale(camera.up, 0.8), scale(camera.right, -0.45)), scale(camera.forward, -0.6))));
+    gl.uniform1i(uniforms.uTexture, 0);
+    gl.uniform1f(uniforms.uClipOn, state.clip ? 1 : 0);
+    if (state.clip) {
+        gl.uniform4fv(uniforms.uClip, state.clip.plane);
+        gl.uniform4fv(uniforms.uCap, state.clip.cap || [0, 0, 0, 0]);
+    }
+
+    const opaque = [];
+    const blended = [];
+    const visit = (node, color, highlight) => {
+        if (!node.visible) return;
+        const ownColor = node.color || color;
+        const lit = highlight || state.highlight.has(node);
+        node.primitives.forEach(primitive => {
+            const item = { node, primitive, color: ownColor, highlight: lit };
+            if ((ownColor ? ownColor[3] < 1 : primitive.material.alphaMode === "BLEND")) {
+                item.depth = length(subtract(transformPoint(node.world, scale(add(primitive.bounds.min, primitive.bounds.max), 0.5)), camera.eye));
+                blended.push(item);
+            } else {
+                opaque.push(item);
+            }
+        });
+        node.children.forEach(child => visit(child, ownColor, lit));
+    };
+    model.roots.forEach(root => visit(root, null, false));
+
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
+    opaque.forEach(item => drawPrimitive(state, item));
+    if (blended.length) {
+        // Transparan digambar terakhir, dari yang terjauh, tanpa menulis kedalaman.
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+        gl.depthMask(false);
+        blended.sort((a, b) => b.depth - a.depth).forEach(item => drawPrimitive(state, item));
+        gl.depthMask(true);
+    }
 }
 
 function drawPrimitive(state, item) {
@@ -1615,6 +1621,14 @@ export function createViewer(id, options = {}) {
                 if (index !== -1) state.modelHandlers.splice(index, 1);
             };
         },
+        // Klik/tap di model: runFunction(hit) seperti onModelClick (hit null kalau meleset).
+        onClick: runFunction => {
+            state.clickHandlers.push(runFunction);
+            return function stop() {
+                const index = state.clickHandlers.indexOf(runFunction);
+                if (index !== -1) state.clickHandlers.splice(index, 1);
+            };
+        },
         camera: () => state.cam || cameraOf(state),
         toScreen: point => toScreen(state, point),
         rayAt: point => rayAt(state, point),
@@ -1642,6 +1656,12 @@ export function createViewer(id, options = {}) {
             if (!state.model) return;
             state.model.dirty = true;
             requestRender(state);
+        },
+        // Untuk AR WebXR (model3dtools.js): konteks WebGL penampil, dan menggambar model dengan
+        // kamera { viewProj, eye, light } ke framebuffer/viewport yang sedang terpasang.
+        gl: state.gl,
+        drawWith: camera => {
+            if (state.model) drawModel(state, camera);
         },
         parseColor,
         math: { add, subtract, scale, dot, cross, length, normalize, transformPoint, transformDirection, invert, multiply }

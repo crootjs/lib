@@ -76,37 +76,75 @@ export function getValueRadio(name){
         if (radioButton.checked) {
             selectedValue = radioButton.value;
         }
-        console.log("Selected Value:", selectedValue);
     });
     return selectedValue;
 }
 
+// <select> dicari dari id-nya, atau dari name kalau tidak ada id seperti itu (versi lama hanya
+// mencari name dan selalu gagal). "" kalau tidak ada yang dipilih.
+function selectOf(id){
+    return document.getElementById(id) || document.getElementsByName(id)[0] || null;
+}
+
 export function getValueSelect(id){
-    const sel = document.getElementsByName(id);
-    return sel.options[sel.selectedIndex].value;
+    const sel = selectOf(id);
+    return sel && sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex].value : "";
 }
 
 export function getTextSelect(id){
-    const sel = document.getElementsByName(id);
-    return sel.options[sel.selectedIndex].text;
+    const sel = selectOf(id);
+    return sel && sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex].text : "";
 }
 
+// Semua field bernama di form menjadi { nama: nilai }. Checkbox tunggal = true/false; beberapa
+// checkbox dengan nama yang sama dan select multiple = array nilai yang dipilih.
 export function serializeForm(id){
     const form = document.getElementById(id);
     const result = {};
     for (const el of form.elements){
         if (!el.name || el.disabled) continue;
         if (el.type === "checkbox"){
-            result[el.name] = el.checked;
+            if (form.querySelectorAll(`input[type="checkbox"][name="${CSS.escape(el.name)}"]`).length > 1) {
+                if (!Array.isArray(result[el.name])) result[el.name] = [];
+                if (el.checked) result[el.name].push(el.value);
+            } else {
+                result[el.name] = el.checked;
+            }
         } else if (el.type === "radio"){
             if (el.checked) result[el.name] = el.value;
         } else if (el.type === "file"){
-            continue; // file inputs need api.js's postFile*/postFileJSON, not JSON
+            continue; // file inputs need api.js's uploadFile, not JSON
+        } else if (el.type === "select-multiple"){
+            result[el.name] = [...el.selectedOptions].map(option => option.value);
         } else {
             result[el.name] = el.value;
         }
     }
     return result;
+}
+
+// Kebalikan serializeForm: mengisi field form dari object, misalnya data dari server untuk form
+// edit. Hanya field yang namanya ada di data yang diubah; field file dilewati.
+export function fillForm(id, data){
+    const form = document.getElementById(id);
+    if (!form) {
+        console.warn(`Form dengan ID "${id}" tidak ditemukan.`);
+        return;
+    }
+    for (const el of form.elements){
+        if (!el.name || !(el.name in data) || el.type === "file") continue;
+        const value = data[el.name];
+        if (el.type === "checkbox"){
+            el.checked = Array.isArray(value) ? value.map(String).includes(el.value) : Boolean(value);
+        } else if (el.type === "radio"){
+            el.checked = String(value) === el.value;
+        } else if (el.type === "select-multiple"){
+            const chosen = (Array.isArray(value) ? value : [value]).map(String);
+            for (const option of el.options) option.selected = chosen.includes(option.value);
+        } else {
+            el.value = value === null || value === undefined ? "" : value;
+        }
+    }
 }
 
 export function getFileSize(id){

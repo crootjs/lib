@@ -7,5 +7,7 @@ import "./mapdraw.test.js";
 import "./model3d.test.js";
 import "./model3dmore.test.js";
 import "./mapextra.test.js";
+import "./more.test.js";
+import "./form.test.js";
 
 run();

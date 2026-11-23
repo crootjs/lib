@@ -53,6 +53,58 @@ function injectStyles() {
     box-shadow: 0 0 0 2px #fff;
 }
 .crootjs-3d-hotspot-hidden { opacity: 0.25; }
+.crootjs-3d-xr {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: center;
+    padding: 24px 16px;
+    pointer-events: none;
+    font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+.crootjs-3d-xr p {
+    margin: 0;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background-color: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    text-align: center;
+}
+.crootjs-3d-xr button {
+    pointer-events: auto;
+    padding: 10px 20px;
+    border: 0;
+    border-radius: 999px;
+    background-color: #fff;
+    color: #1f2937;
+    font: inherit;
+    font-weight: 600;
+}
+.crootjs-3d svg.crootjs-3d-measure {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+}
+.crootjs-3d-measure path { fill: none; stroke: #f97316; stroke-width: 2.5; stroke-linejoin: round; }
+.crootjs-3d-measure circle { fill: #fff; stroke: #f97316; stroke-width: 2; }
+.crootjs-3d-measure-label {
+    position: absolute;
+    left: 0;
+    top: 0;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background-color: #f97316;
+    color: #fff;
+    font: 600 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    white-space: nowrap;
+    pointer-events: none;
+}
 .crootjs-3d a.crootjs-3d-ar {
     position: absolute;
     right: 12px;
@@ -801,6 +853,126 @@ export function addSection(id, options = {}) {
 const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const isAndroid = () => /Android/i.test(navigator.userAgent);
 
+// ---- Mengukur
+
+// Panjang dalam meter -> teks, misalnya "12,5 cm" atau "1,24 m".
+function formatMeters(meters) {
+    const number = (value, digits) => value.toLocaleString("id-ID", { maximumFractionDigits: digits });
+    if (meters < 0.01) return number(meters * 1000, 1) + " mm";
+    if (meters < 1) return number(meters * 100, 1) + " cm";
+    if (meters < 1000) return number(meters, 2) + " m";
+    return number(meters / 1000, 2) + " km";
+}
+
+// Mengukur langsung di permukaan model dengan klik/tap.
+// mode "distance" (bawaan): dua titik -> jarak lurus. "angle": tiga titik -> sudut di titik
+// kedua, misalnya sudut sendi atau kemiringan rangka. Klik sesudah ukuran lengkap memulai
+// ukuran baru.
+// options (semua opsional):
+//   mode       "distance" atau "angle"
+//   scale      meter per satuan model. Bawaan 1 (glTF memakai meter).
+//   onChange   function (result) setiap titik ditambah; result = { mode, points, distance,
+//              angle, text, complete } - distance dalam meter (mode distance), angle dalam
+//              derajat (mode angle), complete = true kalau titiknya sudah lengkap.
+// Selama mengukur, klik model tetap diteruskan ke onModelClick.
+// Mengembalikan { getResult(), clear(), remove() }.
+export function measureModel(id, options = {}) {
+    const viewer = viewerOf(id);
+    const none = { getResult: () => null, clear() {}, remove() {} };
+    if (!viewer) return none;
+    injectStyles();
+    const mode = options.mode === "angle" ? "angle" : "distance";
+    const needed = mode === "angle" ? 3 : 2;
+    const unit = Number(options.scale) > 0 ? Number(options.scale) : 1;
+    const { subtract, length, dot, scale } = viewer.math;
+    let points = [];
+
+    const layer = svg("svg", "crootjs-3d-measure");
+    const path = svg("path");
+    const markers = svg("g");
+    const label = document.createElement("div");
+    label.className = "crootjs-3d-measure-label";
+    label.hidden = true;
+    layer.append(path, markers);
+    viewer.overlay.append(layer, label);
+
+    const result = () => {
+        const complete = points.length === needed;
+        let distance = null;
+        let angle = null;
+        let text = "";
+        if (mode === "distance" && complete) {
+            distance = length(subtract(points[1], points[0])) * unit;
+            text = formatMeters(distance);
+        } else if (mode === "angle" && complete) {
+            const a = subtract(points[0], points[1]);
+            const b = subtract(points[2], points[1]);
+            const cosine = dot(a, b) / (length(a) * length(b) || 1);
+            angle = Math.acos(Math.max(-1, Math.min(1, cosine))) * 180 / Math.PI;
+            text = angle.toLocaleString("id-ID", { maximumFractionDigits: 1 }) + "°";
+        }
+        return { mode, points: points.map(point => point.slice()), distance, angle, text, complete };
+    };
+
+    const place = () => {
+        const screen = points.map(point => viewer.toScreen(point));
+        if (screen.some(point => !point)) {
+            layer.style.display = "none";
+            label.hidden = true;
+            return;
+        }
+        layer.style.display = "";
+        path.setAttribute("d", screen.map((point, index) => (index ? "L" : "M") + point[0].toFixed(1) + " " + point[1].toFixed(1)).join(""));
+        while (markers.childNodes.length > screen.length) markers.lastChild.remove();
+        screen.forEach((point, index) => {
+            let circle = markers.childNodes[index];
+            if (!circle) {
+                circle = svg("circle");
+                circle.setAttribute("r", "4");
+                markers.appendChild(circle);
+            }
+            circle.setAttribute("cx", point[0].toFixed(1));
+            circle.setAttribute("cy", point[1].toFixed(1));
+        });
+        const current = result();
+        label.hidden = !current.complete;
+        if (current.complete) {
+            // Jarak: di tengah garis; sudut: di titik sudutnya.
+            const at = mode === "distance" ? scale([screen[0][0] + screen[1][0], screen[0][1] + screen[1][1], 0], 0.5) : screen[1];
+            label.textContent = current.text;
+            label.style.transform = `translate(${at[0]}px, ${at[1]}px) translate(-50%, calc(-100% - 8px))`;
+        }
+    };
+
+    const stopClick = viewer.onClick(hit => {
+        if (!hit) return;
+        if (points.length === needed) points = [];
+        points.push(hit.position.slice());
+        place();
+        if (typeof options.onChange === "function") options.onChange(result());
+    });
+    const stopRender = viewer.onRender(place);
+    const stopModel = viewer.onModel(() => {
+        points = [];
+        place();
+    });
+
+    return {
+        getResult: result,
+        clear() {
+            points = [];
+            place();
+        },
+        remove() {
+            stopClick();
+            stopRender();
+            stopModel();
+            layer.remove();
+            label.remove();
+        }
+    };
+}
+
 // Tautan yang membuka model di Scene Viewer (aplikasi AR Google di Android): model tampil di
 // ruangan lewat kamera, bisa digeser dan diputar. url harus .glb/.gltf yang bisa diunduh publik
 // lewat HTTPS (bukan blob: atau file lokal). options: title, mode ("ar_preferred" bawaan,
@@ -812,11 +984,148 @@ export function getARLink(url, options = {}) {
     return `intent://arvr.google.com/scene-viewer/1.0?${params}#Intent;scheme=https;package=com.google.android.googlequicksearchbox;action=android.intent.action.VIEW;S.browser_fallback_url=${fallback};end;`;
 }
 
+// ---- AR di dalam halaman (WebXR)
+
+// true kalau browser bisa membuka sesi AR WebXR (Chrome Android dengan ARCore; Safari iOS
+// belum). Promise<boolean>.
+export function isARSupported() {
+    if (!navigator.xr || typeof navigator.xr.isSessionSupported !== "function") return Promise.resolve(false);
+    return navigator.xr.isSessionSupported("immersive-ar").catch(() => false);
+}
+
+// Translasi lalu skala seragam, matriks kolom 4x4.
+function placementMatrix(position, size, base) {
+    return new Float32Array([
+        size, 0, 0, 0,
+        0, size, 0, 0,
+        0, 0, size, 0,
+        position[0] - base[0] * size, position[1] - base[1] * size, position[2] - base[2] * size, 1
+    ]);
+}
+
+// Membuka model yang sedang tampil di penampil id dalam AR di dalam halaman: kamera ponsel
+// menampilkan ruangan, model mengikuti lantai/meja yang terdeteksi, dan ketukan menaruhnya di
+// sana (ketuk lagi untuk memindahkan). Model tampil dengan ukuran sebenarnya (glTF = meter).
+// Harus dipanggil dari klik/tap pengguna (aturan browser). Butuh WebXR dengan hit-test: Chrome
+// di Android ber-ARCore; di perangkat lain pakai addARButton (Scene Viewer/Quick Look).
+// options (semua opsional):
+//   scale    pengali ukuran. Bawaan 1.
+//   hint     teks petunjuk. Bawaan "Arahkan kamera ke lantai, lalu ketuk untuk menaruh model."
+//   onPlace  function (position) setiap model ditaruh; position [x, y, z] dalam meter.
+//   onEnd    function () saat AR ditutup.
+// Mengembalikan Promise { supported, end() } - supported = false (dengan peringatan di console)
+// kalau sesi AR tidak bisa dibuka.
+export async function startAR(id, options = {}) {
+    const viewer = viewerOf(id);
+    const failed = { supported: false, end() {} };
+    if (!viewer || !viewer.getModel()) return failed;
+    if (!navigator.xr) {
+        console.warn("Browser ini tidak mendukung WebXR; pakai addARButton untuk Scene Viewer/Quick Look.");
+        return failed;
+    }
+    injectStyles();
+    // Lapisan HTML di atas kamera (dom-overlay): petunjuk dan tombol Tutup.
+    const overlay = document.createElement("div");
+    overlay.className = "crootjs-3d-xr";
+    const hint = document.createElement("p");
+    hint.textContent = options.hint || "Arahkan kamera ke lantai, lalu ketuk untuk menaruh model.";
+    const close = document.createElement("button");
+    close.type = "button";
+    close.textContent = "Tutup";
+    overlay.append(hint, close);
+    document.body.appendChild(overlay);
+
+    let session;
+    try {
+        session = await navigator.xr.requestSession("immersive-ar", {
+            requiredFeatures: ["hit-test", "local"],
+            optionalFeatures: ["dom-overlay"],
+            domOverlay: { root: overlay }
+        });
+    } catch (error) {
+        overlay.remove();
+        console.warn(`AR tidak bisa dibuka: ${error.message}`);
+        return failed;
+    }
+
+    const gl = viewer.gl;
+    const { invert, multiply, transformPoint } = viewer.math;
+    const size = Number(options.scale) > 0 ? Number(options.scale) : 1;
+    // Titik model yang diletakkan di permukaan: tengah alasnya.
+    const bounds = viewer.boundsOf(viewer.getModel().roots);
+    const base = bounds ? [bounds.center[0], bounds.min[1], bounds.center[2]] : [0, 0, 0];
+    let placement = null;
+    let placed = false;
+    let lastHit = null;
+    let hitSource = null;
+
+    const finish = () => {
+        if (hitSource) hitSource.cancel();
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        overlay.remove();
+        viewer.requestRender();
+        if (typeof options.onEnd === "function") options.onEnd();
+    };
+    session.addEventListener("end", finish);
+    close.addEventListener("click", () => session.end());
+    // Ketuk layar (select): taruh model di permukaan yang sedang ditunjuk.
+    session.addEventListener("select", () => {
+        if (!lastHit) return;
+        placed = true;
+        placement = placementMatrix(lastHit, size, base);
+        hint.textContent = "Ketuk lagi untuk memindahkan.";
+        if (typeof options.onPlace === "function") options.onPlace(lastHit.slice());
+    });
+
+    try {
+        if (gl.makeXRCompatible) await gl.makeXRCompatible();
+        const layer = new XRWebGLLayer(session, gl);
+        session.updateRenderState({ baseLayer: layer });
+        const space = await session.requestReferenceSpace("local");
+        hitSource = await session.requestHitTestSource({ space: await session.requestReferenceSpace("viewer") });
+
+        const frame = (time, xrFrame) => {
+            session.requestAnimationFrame(frame);
+            const pose = xrFrame.getViewerPose(space);
+            const hits = xrFrame.getHitTestResults(hitSource);
+            if (hits.length) {
+                const position = hits[0].getPose(space).transform.position;
+                lastHit = [position.x, position.y, position.z];
+                // Sebelum ditaruh, model mengikuti permukaan yang ditunjuk sebagai pratinjau.
+                if (!placed) placement = placementMatrix(lastHit, size, base);
+            }
+            gl.bindFramebuffer(gl.FRAMEBUFFER, layer.framebuffer);
+            gl.clearColor(0, 0, 0, 0);
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+            if (!pose || !placement) return;
+            const toModel = invert(placement);
+            for (const view of pose.views) {
+                const viewport = layer.getViewport(view);
+                gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
+                const position = view.transform.position;
+                viewer.drawWith({
+                    viewProj: multiply(view.projectionMatrix, multiply(view.transform.inverse.matrix, placement)),
+                    eye: transformPoint(toModel, [position.x, position.y, position.z]),
+                    light: [-0.36, 0.86, 0.36] // dari atas, sedikit dari samping
+                });
+            }
+        };
+        session.requestAnimationFrame(frame);
+    } catch (error) {
+        console.warn(`AR tidak bisa dimulai: ${error.message}`);
+        session.end();
+        return failed;
+    }
+    return { supported: true, end: () => session.end() };
+}
+
 // Tombol "Lihat di AR" di pojok penampil. Di Android membuka Scene Viewer dengan url; di iPhone
 // dan iPad membuka AR Quick Look - tapi hanya kalau options.usdz diisi (Quick Look tidak bisa
 // membuka .glb; ubah dulu ke .usdz, misalnya dengan Reality Converter). Di perangkat lain
 // tombolnya tidak ditambahkan.
-// options: title, usdz, label (bawaan "Lihat di AR"), mode, fallback.
+// options: title, usdz, label (bawaan "Lihat di AR"), mode, fallback, dan webxr: true supaya di
+// perangkat yang bisa (Chrome Android) AR dibuka di dalam halaman lewat startAR (opsi startAR
+// ikut dipakai), tanpa pindah ke Scene Viewer.
 // Mengembalikan { supported, remove() } - supported = false kalau tombolnya tidak ditambahkan.
 export function addARButton(id, url, options = {}) {
     const viewer = viewerOf(id);
@@ -839,6 +1148,17 @@ export function addARButton(id, url, options = {}) {
         element.append(icon, document.createTextNode(" " + label));
     }
     if (!element) return { supported: false, remove() {} };
+    // AR di dalam halaman (WebXR) kalau perangkatnya bisa; kalau belum terjawab atau tidak
+    // bisa, tautan Scene Viewer/Quick Look tetap jalan seperti biasa.
+    if (options.webxr) {
+        isARSupported().then(supported => {
+            if (!supported) return;
+            element.addEventListener("click", event => {
+                event.preventDefault();
+                startAR(id, options);
+            });
+        });
+    }
     element.className = "crootjs-3d-ar";
     isolate(element);
     viewer.root.appendChild(element);

@@ -1,4 +1,4 @@
-# Setiap push dan pull request: jalankan tests/index.html di Chromium headless.
+# Setiap push dan pull request: jalankan tests/index.html di Chromium, Firefox, dan WebKit headless.
 # Setiap push ke main yang lolos uji: buat tag dan GitHub Release dari CHANGELOG.md
 # (tools/release.py) - hanya kalau versi teratasnya belum punya tag/release.
 # Playwright (Python) hanya dipakai untuk menjalankan uji; pengguna CrootJS tetap tanpa npm.
@@ -14,17 +14,21 @@ jobs:
   browser:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Pasang Playwright dan Chromium
+      - name: Pasang Playwright dan ${{ matrix.browser }}
         run: |
-          pip install playwright==1.48.0
-          python -m playwright install --with-deps chromium
+          pip install playwright==1.65.2
+          python -m playwright install --with-deps ${{ matrix.browser }}
       - name: Jalankan uji
-        run: python tests/run.py
+        run: python tests/run.py ${{ matrix.browser }}
 
   release:
     needs: browser
@@ -35,7 +39,7 @@ jobs:
       contents: write
     concurrency: release
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Tag dan GitHub Release dari CHANGELOG.md

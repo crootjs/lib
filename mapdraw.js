@@ -92,6 +92,29 @@ function injectStyles() {
 }
 .crootjs-map-draw-actions button:hover { background-color: #f3f4f6; }
 .crootjs-map-draw-actions button[hidden] { display: none; }
+.crootjs-map-crosshair {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 24px;
+    height: 24px;
+    margin: -12px 0 0 -12px;
+    pointer-events: none;
+    display: none;
+    background:
+        linear-gradient(#1f2937, #1f2937) center / 2px 100% no-repeat,
+        linear-gradient(#1f2937, #1f2937) center / 100% 2px no-repeat;
+    filter: drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff);
+}
+.crootjs-map:focus-visible > .crootjs-map-crosshair { display: block; }
+.crootjs-map-status {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
 @media (pointer: coarse) {
     .crootjs-draw circle.crootjs-draw-vertex { r: 9px; }
     .crootjs-draw circle.crootjs-draw-midpoint { r: 7px; }
@@ -143,7 +166,8 @@ function propertiesFor(options, kind) {
 // Mulai menggambar satu geometri. type: "point", "line", atau "polygon" (atau "Point",
 // "LineString", "Polygon"). Klik peta menambah titik; klik ganda, Enter, atau klik titik
 // pertama poligon = selesai; Backspace = hapus titik terakhir; Esc = batal. Titik selesai
-// dengan satu klik.
+// dengan satu klik. Dari keyboard (peta terfokus): panah menggeser peta, Spasi menaruh titik di
+// tanda + di tengah peta.
 // responseFunction(feature) dipanggil sekali: Feature GeoJSON hasilnya, atau null kalau
 // dibatalkan. options (semua opsional):
 //   properties  object, atau function (type) => object, untuk properties Feature hasilnya.
@@ -172,6 +196,16 @@ export function startDrawing(id, type, responseFunction, options = {}) {
     const vertices = svgElement("g");
     svg.append(shape, preview, vertices);
     map.overlay.appendChild(svg);
+    // Dari keyboard: tanda + di tengah peta menunjukkan tempat titik berikutnya (Spasi), dan
+    // setiap perubahan dibacakan pembaca layar lewat status yang tidak terlihat.
+    const crosshair = document.createElement("div");
+    crosshair.className = "crootjs-map-crosshair";
+    const status = document.createElement("div");
+    status.className = "crootjs-map-status";
+    status.setAttribute("role", "status");
+    map.root.append(crosshair, status);
+    const announce = text => { status.textContent = text; };
+    const center = () => map.toPosition([map.root.clientWidth / 2, map.root.clientHeight / 2]);
 
     const featureOf = () => points.length >= MINIMUM[kind]
         ? { type: "Feature", properties: propertiesFor(options, kind), geometry: geometryOf(kind, points) }
@@ -180,7 +214,8 @@ export function startDrawing(id, type, responseFunction, options = {}) {
     const draw = () => {
         const screen = points.map(map.toPoint);
         shape.setAttribute("d", pathData(screen, kind === "polygon"));
-        const tip = cursor && !finished ? map.toPoint(cursor) : null;
+        const keyboard = map.root.matches(":focus-visible");
+        const tip = finished ? null : keyboard ? map.toPoint(center()) : cursor ? map.toPoint(cursor) : null;
         let guide = "";
         if (tip && screen.length) {
             guide = pathData([screen[screen.length - 1], tip]);
@@ -222,6 +257,7 @@ export function startDrawing(id, type, responseFunction, options = {}) {
         }
         points.push(position);
         changed();
+        announce(`Titik ${points.length} ditambahkan.`);
         if (kind === "point") finish();
     };
     const move = event => {
@@ -251,7 +287,11 @@ export function startDrawing(id, type, responseFunction, options = {}) {
         map.root.removeEventListener("pointermove", move);
         map.root.removeEventListener("pointerleave", leave);
         document.removeEventListener("keydown", keys);
+        map.root.removeEventListener("focus", draw);
+        map.root.removeEventListener("blur", draw);
         svg.remove();
+        crosshair.remove();
+        status.remove();
         if (map.root.crootjsDraw === controller) delete map.root.crootjsDraw;
     };
     const respond = feature => {
@@ -268,6 +308,7 @@ export function startDrawing(id, type, responseFunction, options = {}) {
         if (finished || !points.length) return;
         points.pop();
         changed();
+        announce(`Titik terakhir dihapus, tersisa ${points.length}.`);
     };
     const stop = () => {
         if (finished) return;
@@ -280,10 +321,13 @@ export function startDrawing(id, type, responseFunction, options = {}) {
         if (event.key === "Escape") stop();
         else if (event.key === "Enter") finish();
         else if (event.key === "Backspace") undo();
+        else if (event.key === " " && event.target === map.root) add(center());
         else return;
         event.preventDefault();
     }
     document.addEventListener("keydown", keys);
+    map.root.addEventListener("focus", draw);
+    map.root.addEventListener("blur", draw);
 
     const controller = { finish, undo, stop };
     map.root.crootjsDraw = controller;
@@ -586,9 +630,9 @@ export function addDrawControl(id, options = {}) {
     const cancelButton = actionButton("Batal", () => setMode(null));
 
     const HINTS = {
-        point: "Klik peta untuk menaruh titik.",
-        line: "Klik titik-titik garis. Klik ganda atau Selesai untuk mengakhiri.",
-        polygon: "Klik titik-titik batas area. Klik titik pertama, klik ganda, atau Selesai untuk mengakhiri.",
+        point: "Klik peta untuk menaruh titik. Keyboard: geser peta dengan panah, Spasi menaruh titik di tanda +.",
+        line: "Klik titik-titik garis. Klik ganda atau Selesai untuk mengakhiri. Keyboard: panah, Spasi menaruh titik, Enter selesai.",
+        polygon: "Klik titik-titik batas area. Klik titik pertama, klik ganda, atau Selesai untuk mengakhiri. Keyboard: panah, Spasi menaruh titik, Enter selesai.",
         edit: "Klik fitur yang ingin diubah.",
         delete: "Klik fitur yang ingin dihapus."
     };
@@ -640,7 +684,11 @@ export function addDrawControl(id, options = {}) {
         button.title = ICONS[name][1];
         button.setAttribute("aria-label", ICONS[name][1]);
         button.setAttribute("aria-pressed", "false");
-        button.addEventListener("click", () => setMode(name));
+        button.addEventListener("click", event => {
+            setMode(name);
+            // Dipilih dari keyboard (detail 0): fokus pindah ke peta supaya bisa langsung menggambar.
+            if (event.detail === 0 && mode && mode !== "edit" && mode !== "delete") map.root.focus();
+        });
         buttons.appendChild(button);
         tools[name] = button;
     });

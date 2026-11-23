@@ -28,18 +28,21 @@ export function deleteCookie(cname) {
 }
 
 // Fungsi untuk mendapatkan nilai cookie berdasarkan nama
+// Nama dan nilai di-decode sekali, setelah dipisah per ";" - nilai berisi ";" atau "%" yang
+// disimpan setCookie* tetap utuh. Cookie dari sumber lain yang bukan hasil encodeURIComponent
+// dikembalikan apa adanya.
 export function getCookie(cname) {
-  let name = encodeURIComponent(cname) + "=";
-  let decodedCookie = decodeURIComponent(document.cookie);
-  let ca = decodedCookie.split(';');
-  for(let i = 0; i < ca.length; i++) {
-      let c = ca[i];
-      while (c.charAt(0) === ' ') {
-          c = c.substring(1);
-      }
-      if (c.indexOf(name) === 0) {
-          return decodeURIComponent(c.substring(name.length, c.length));
-      }
+  const decode = text => {
+    try {
+      return decodeURIComponent(text);
+    } catch {
+      return text;
+    }
+  };
+  for (const part of document.cookie.split(";")) {
+      const separator = part.indexOf("=");
+      if (separator === -1) continue;
+      if (decode(part.slice(0, separator).trim()) === cname) return decode(part.slice(separator + 1).trim());
   }
   return "";
 }

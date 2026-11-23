@@ -2,6 +2,7 @@ import { describe, test, assert, nextFrame } from "./runner.js";
 import { newMap, tap, pointer, doubleClick } from "./maputil.js";
 import { mapToPoint, pointToPosition } from "../map.js";
 import { startDrawing, editFeature, addDrawControl } from "../mapdraw.js";
+import { exportMapImage, measure } from "../maptools.js";
 
 const keyboard = key => document.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
 
@@ -105,5 +106,60 @@ describe("mapdraw.js", () => {
         assert.equal(control.getData().features[0].geometry.type, "LineString");
         control.remove();
         assert.equal(document.querySelector(`#${id} .crootjs-map-draw`), null);
+    });
+    test("keyboard: panah menggeser, Spasi menaruh titik di tengah, Enter selesai", () => {
+        const id = newMap();
+        const root = document.getElementById(id).querySelector(".crootjs-map");
+        const press = key => root.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+        let result;
+        startDrawing(id, "line", feature => { result = feature; });
+        root.focus();
+        const first = pointToPosition(id, [200, 150]);
+        press(" ");
+        press("ArrowLeft");
+        press(" ");
+        const status = root.querySelector(".crootjs-map-status");
+        assert.equal(status.getAttribute("role"), "status");
+        assert.equal(status.textContent, "Titik 2 ditambahkan.");
+        press("Enter");
+        assert.equal(result.geometry.coordinates.length, 2);
+        assert.close(result.geometry.coordinates[0], first, 1e-6);
+        assert.ok(result.geometry.coordinates[1][0] < first[0], "panah kiri menggeser ke barat");
+        assert.equal(root.querySelector(".crootjs-map-crosshair"), null, "tanda + hilang sesudah selesai");
+    });
+    test("hasil gambar ikut di exportMapImage", async () => {
+        const id = newMap();
+        const corner = (x, y) => pointToPosition(id, [x, y]);
+        const ring = [corner(100, 100), corner(300, 100), corner(300, 200), corner(100, 200), corner(100, 100)];
+        addDrawControl(id, { data: { type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [ring] } } });
+        const blob = await new Promise(resolve => exportMapImage(id, resolve, { scale: 1 }));
+        const image = await createImageBitmap(blob);
+        const canvas = document.createElement("canvas");
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const context = canvas.getContext("2d", { willReadFrequently: true });
+        context.drawImage(image, 0, 0);
+        const [r, g, b] = context.getImageData(100, 150, 1, 1).data;
+        assert.ok(b > 200 && r < 80, `tepi poligon harus biru, dapat rgb(${r}, ${g}, ${b})`);
+    });
+});
+
+describe("maptools.js: keyboard", () => {
+    test("ukur jarak dengan Spasi dan panah; hasil dibacakan", () => {
+        const id = newMap();
+        const root = document.getElementById(id).querySelector(".crootjs-map");
+        const press = key => root.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+        let result;
+        const tool = measure(id, "distance", value => { result = value; });
+        root.focus();
+        press(" ");
+        press("ArrowRight");
+        press(" ");
+        press("Enter");
+        assert.ok(result && result.length > 0, "jarak harus terukur");
+        assert.ok(root.querySelector(".crootjs-map-status").textContent.startsWith("Selesai. "));
+        assert.equal(root.querySelector(".crootjs-map-crosshair"), null);
+        tool.stop();
+        assert.equal(root.querySelector(".crootjs-map-status"), null);
     });
 });

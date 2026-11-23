@@ -14,12 +14,24 @@ SKIP = {"mongo.js"}  # untuk server, bukan browser
 
 FUNCTION = "(...args: any[]) => any"
 # Tipe hasil yang diketahui; selain ini `any`.
+RESULT = "{ status: number; data: any; headers: Headers; error: null | \"timeout\" | \"abort\" | \"offline\" | \"network\" | \"nofile\"; cached?: boolean }"
 RETURNS = {
-    ("api.js", "getJSON"): "Promise<{ status: number; data: any; headers: Headers; error: null | \"timeout\" | \"offline\" | \"network\"; cached: boolean }>",
-    ("api.js", "postJSON"): "Promise<{ status: number; data: any; headers: Headers; error: null | \"timeout\" | \"offline\" | \"network\"; cached: boolean }>",
-    ("api.js", "putJSON"): "Promise<{ status: number; data: any; headers: Headers; error: null | \"timeout\" | \"offline\" | \"network\"; cached: boolean }>",
-    ("api.js", "deleteJSON"): "Promise<{ status: number; data: any; headers: Headers; error: null | \"timeout\" | \"offline\" | \"network\"; cached: boolean }>",
+    ("api.js", "getJSON"): f"Promise<{RESULT}>",
+    ("api.js", "postJSON"): f"Promise<{RESULT}>",
+    ("api.js", "putJSON"): f"Promise<{RESULT}>",
+    ("api.js", "deleteJSON"): f"Promise<{RESULT}>",
+    ("api.js", "uploadFile"): f"Promise<{RESULT}>",
+    ("api.js", "downloadFile"): f"Promise<{RESULT}>",
+    ("element.js", "serializeForm"): "Record<string, string | boolean | string[]>",
+    ("form.js", "validateForm"): "boolean",
+    ("form.js", "handleForm"): "{ validate(): boolean; clear(): void; remove(): void }",
+    ("mapcache.js", "cachedTiles"): "{ getTile(z: number, x: number, y: number): Promise<Blob | string | null>; url: string; attribution: any; count(): Promise<number>; clear(): Promise<boolean>; downloadArea(bounds: number[], minZoom: number, maxZoom: number, onProgress?: (done: number, total: number) => void): Promise<{ total: number; saved: number; failed: number; error: string | null }> }",
+    ("mapvector.js", "decodeMVT"): "Record<string, { extent: number; features: { type: number; properties: Record<string, any>; geometry: number[][][] }[] }>",
+    ("mapvector.js", "renderVectorTile"): "Promise<Blob>",
     ("model3d.js", "loadModel"): "Promise<{ parts: string[]; triangles: number; bounds: { min: number[]; max: number[]; center: number[]; size: number[] } | null } | null>",
+    ("model3dtools.js", "measureModel"): "{ getResult(): { mode: string; points: number[][]; distance: number | null; angle: number | null; text: string; complete: boolean }; clear(): void; remove(): void }",
+    ("model3dtools.js", "isARSupported"): "Promise<boolean>",
+    ("model3dtools.js", "startAR"): "Promise<{ supported: boolean; end(): void }>",
     ("model3dtools.js", "exportGLB"): "Promise<Blob | null>",
     ("model3dtools.js", "downloadGLB"): "Promise<Blob | null>",
 }

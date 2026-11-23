@@ -3,8 +3,8 @@ import { setCookieWithExpireDay, getCookie, deleteCookie } from "../cookie.js";
 import { setLocal, getLocal, deleteLocal, setLocalWithExpireSecond, setSession, getSession } from "../storage.js";
 import { debounce, throttle } from "../debounce.js";
 import { validatePhoneNumber, formatRupiah, validateUserName } from "../validate.js";
-import { getQueryString } from "../url.js";
-import { setInner, getValue, setValue, onClick } from "../element.js";
+import { getQueryString, folderPath } from "../url.js";
+import { setInner, getValue, setValue, onClick, getValueSelect, getTextSelect } from "../element.js";
 import { getJSON, postJSON } from "../api.js";
 
 describe("cookie.js", () => {
@@ -13,6 +13,12 @@ describe("cookie.js", () => {
         assert.equal(getCookie("crootjs_uji"), "nilai 1");
         deleteCookie("crootjs_uji");
         assert.equal(getCookie("crootjs_uji"), "");
+    });
+    test("nilai dan nama berisi ; % dan spasi tetap utuh", () => {
+        setCookieWithExpireDay("crootjs uji", "a;b=50% c", 1);
+        assert.equal(getCookie("crootjs uji"), "a;b=50% c");
+        deleteCookie("crootjs uji");
+        assert.equal(getCookie("crootjs uji"), "");
     });
 });
 
@@ -81,6 +87,15 @@ describe("validate.js", () => {
 });
 
 describe("url.js", () => {
+    test("folderPath membuang nama file saja", () => {
+        const before = location.href;
+        const cases = [["/a/b/index.html", "/a/b/"], ["/js/app.min.js", "/js/"], ["/v1.2/page", "/v1.2/page"], ["/docs/", "/docs/"]];
+        cases.forEach(([path, expected]) => {
+            history.replaceState(null, "", path);
+            assert.equal(folderPath(), expected, path);
+        });
+        history.replaceState(null, "", before);
+    });
     test("getQueryString", () => {
         const before = location.href;
         history.replaceState(null, "", "?uji=satu%20dua");
@@ -100,6 +115,9 @@ describe("element.js", () => {
         assert.equal(getValue("uji-input"), "abc");
         let clicked = 0;
         onClick("uji-button", () => clicked++);
+        box.insertAdjacentHTML("beforeend", '<select id="uji-select"><option value="a">Satu</option><option value="b" selected>Dua</option></select>');
+        assert.equal(getValueSelect("uji-select"), "b");
+        assert.equal(getTextSelect("uji-select"), "Dua");
         document.getElementById("uji-button").click();
         assert.equal(clicked, 1);
         box.remove();

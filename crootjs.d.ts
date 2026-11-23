@@ -12,16 +12,45 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/api.js" {
      * Sesudah responseFunction boleh (tokenkey, tokenvalue) atau satu object opsi:
      * headers  object header tambahan, misalnya { Authorization: "Bearer ..." }
      * timeout  milidetik sebelum request dibatalkan. Bawaan 15000.
+     * signal   AbortSignal dari AbortController: controller.abort() membatalkan request
+     * (error "abort", tanpa peringatan di console).
      * cache    { key, ttl }: simpan hasil GET yang berhasil di localStorage selama ttl detik
      * (hanya getJSON), lalu tanyakan ulang dengan If-None-Match; 304 memberi data tersimpan
      * dengan status aslinya (200) dan cached = true.
      * headers = Headers dari server (kosong kalau gagal atau dari cache); error = null, atau
-     * "timeout" / "offline" / "network" saat status 0; cached = true kalau data dari cache.
+     * "timeout" / "abort" / "offline" / "network" saat status 0; cached = true kalau data dari cache.
      */
-    export function getJSON(target_url: string, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "offline" | "network"; cached: boolean }>;
-    export function postJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "offline" | "network"; cached: boolean }>;
-    export function deleteJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "offline" | "network"; cached: boolean }>;
-    export function putJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "offline" | "network"; cached: boolean }>;
+    export function getJSON(target_url: string, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean }>;
+    export function postJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean }>;
+    export function deleteJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean }>;
+    export function putJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean }>;
+    /**
+     * Mengunggah file dengan multipart/form-data dan melaporkan kemajuannya. Hasilnya sama bentuknya
+     * dengan getJSON: { status, data, headers, error } ke responseFunction (boleh null) dan Promise
+     * yang tidak pernah reject.
+     * source: id <input type="file"> (semua file pilihannya), File/Blob, FileList, array File, atau
+     * FormData yang sudah jadi.
+     * options (semua opsional):
+     * field       nama field file di form. Bawaan "file" (samakan dengan backend).
+     * data        object field tambahan, misalnya { judul: "Foto KTP" }.
+     * method      Bawaan "POST".
+     * headers     object header tambahan (token). Content-Type diisi browser (dengan boundary).
+     * timeout     milidetik tanpa kemajuan sebelum dibatalkan. Bawaan 15000; dihitung ulang setiap
+     * ada data yang terkirim, jadi file besar di jaringan lambat tetap bisa selesai.
+     * signal      AbortSignal untuk membatalkan (error "abort").
+     * onProgress  function (fraction, loaded, total) selama mengunggah; fraction 0 sampai 1.
+     * error "nofile" kalau tidak ada file yang dipilih (tanpa request).
+     * Memakai XMLHttpRequest, karena fetch() belum bisa melaporkan kemajuan unggahan.
+     */
+    export function uploadFile(target_url: string, source: any, responseFunction?: (...args: any[]) => any, options?: Record<string, any>): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean }>;
+    /**
+     * Mengunduh file. Hasil { status, data, headers, error } ke responseFunction (boleh null) dan
+     * Promise yang tidak pernah reject: data = Blob kalau status 2xx, selain itu body error server
+     * yang di-parse dari JSON (atau null).
+     * options (semua opsional): headers, timeout (bawaan 15000), signal - sama dengan getJSON - dan
+     * fileName  kalau diisi, file 2xx langsung disimpan browser dengan nama ini.
+     */
+    export function downloadFile(target_url: string, responseFunction?: (...args: any[]) => any, options?: Record<string, any>): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean }>;
     /**
      * errorFunction (opsional) dipanggil dengan sebuah Error kalau elemen tidak ada,
      * server membalas status non-2xx, jaringan gagal, atau request timeout.
@@ -59,16 +88,45 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/api.min.js" {
      * Sesudah responseFunction boleh (tokenkey, tokenvalue) atau satu object opsi:
      * headers  object header tambahan, misalnya { Authorization: "Bearer ..." }
      * timeout  milidetik sebelum request dibatalkan. Bawaan 15000.
+     * signal   AbortSignal dari AbortController: controller.abort() membatalkan request
+     * (error "abort", tanpa peringatan di console).
      * cache    { key, ttl }: simpan hasil GET yang berhasil di localStorage selama ttl detik
      * (hanya getJSON), lalu tanyakan ulang dengan If-None-Match; 304 memberi data tersimpan
      * dengan status aslinya (200) dan cached = true.
      * headers = Headers dari server (kosong kalau gagal atau dari cache); error = null, atau
-     * "timeout" / "offline" / "network" saat status 0; cached = true kalau data dari cache.
+     * "timeout" / "abort" / "offline" / "network" saat status 0; cached = true kalau data dari cache.
      */
-    export function getJSON(target_url: string, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "offline" | "network"; cached: boolean }>;
-    export function postJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "offline" | "network"; cached: boolean }>;
-    export function deleteJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "offline" | "network"; cached: boolean }>;
-    export function putJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "offline" | "network"; cached: boolean }>;
+    export function getJSON(target_url: string, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean }>;
+    export function postJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean }>;
+    export function deleteJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean }>;
+    export function putJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean }>;
+    /**
+     * Mengunggah file dengan multipart/form-data dan melaporkan kemajuannya. Hasilnya sama bentuknya
+     * dengan getJSON: { status, data, headers, error } ke responseFunction (boleh null) dan Promise
+     * yang tidak pernah reject.
+     * source: id <input type="file"> (semua file pilihannya), File/Blob, FileList, array File, atau
+     * FormData yang sudah jadi.
+     * options (semua opsional):
+     * field       nama field file di form. Bawaan "file" (samakan dengan backend).
+     * data        object field tambahan, misalnya { judul: "Foto KTP" }.
+     * method      Bawaan "POST".
+     * headers     object header tambahan (token). Content-Type diisi browser (dengan boundary).
+     * timeout     milidetik tanpa kemajuan sebelum dibatalkan. Bawaan 15000; dihitung ulang setiap
+     * ada data yang terkirim, jadi file besar di jaringan lambat tetap bisa selesai.
+     * signal      AbortSignal untuk membatalkan (error "abort").
+     * onProgress  function (fraction, loaded, total) selama mengunggah; fraction 0 sampai 1.
+     * error "nofile" kalau tidak ada file yang dipilih (tanpa request).
+     * Memakai XMLHttpRequest, karena fetch() belum bisa melaporkan kemajuan unggahan.
+     */
+    export function uploadFile(target_url: string, source: any, responseFunction?: (...args: any[]) => any, options?: Record<string, any>): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean }>;
+    /**
+     * Mengunduh file. Hasil { status, data, headers, error } ke responseFunction (boleh null) dan
+     * Promise yang tidak pernah reject: data = Blob kalau status 2xx, selain itu body error server
+     * yang di-parse dari JSON (atau null).
+     * options (semua opsional): headers, timeout (bawaan 15000), signal - sama dengan getJSON - dan
+     * fileName  kalau diisi, file 2xx langsung disimpan browser dengan nama ini.
+     */
+    export function downloadFile(target_url: string, responseFunction?: (...args: any[]) => any, options?: Record<string, any>): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean }>;
     /**
      * errorFunction (opsional) dipanggil dengan sebuah Error kalau elemen tidak ada,
      * server membalas status non-2xx, jaringan gagal, atau request timeout.
@@ -156,6 +214,9 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/cookie.js" {
     export function deleteCookie(cname: any): any;
     /**
      * Fungsi untuk mendapatkan nilai cookie berdasarkan nama
+     * Nama dan nilai di-decode sekali, setelah dipisah per ";" - nilai berisi ";" atau "%" yang
+     * disimpan setCookie* tetap utuh. Cookie dari sumber lain yang bukan hasil encodeURIComponent
+     * dikembalikan apa adanya.
      */
     export function getCookie(cname: any): any;
 }
@@ -179,6 +240,9 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/cookie.min.js" {
     export function deleteCookie(cname: any): any;
     /**
      * Fungsi untuk mendapatkan nilai cookie berdasarkan nama
+     * Nama dan nilai di-decode sekali, setelah dipisah per ";" - nilai berisi ";" atau "%" yang
+     * disimpan setCookie* tetap utuh. Cookie dari sumber lain yang bukan hasil encodeURIComponent
+     * dikembalikan apa adanya.
      */
     export function getCookie(cname: any): any;
 }
@@ -226,7 +290,16 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/element.js" {
     export function getValueRadio(name: string): any;
     export function getValueSelect(id: string): any;
     export function getTextSelect(id: string): any;
-    export function serializeForm(id: string): any;
+    /**
+     * Semua field bernama di form menjadi { nama: nilai }. Checkbox tunggal = true/false; beberapa
+     * checkbox dengan nama yang sama dan select multiple = array nilai yang dipilih.
+     */
+    export function serializeForm(id: string): Record<string, string | boolean | string[]>;
+    /**
+     * Kebalikan serializeForm: mengisi field form dari object, misalnya data dari server untuk form
+     * edit. Hanya field yang namanya ada di data yang diubah; field file dilewati.
+     */
+    export function fillForm(id: string, data: any): any;
     export function getFileSize(id: string): any;
     export function setValue(id: string, valuecontent: any): any;
     export function setInner(id: string, content: any): any;
@@ -270,7 +343,16 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/element.min.js" {
     export function getValueRadio(name: string): any;
     export function getValueSelect(id: string): any;
     export function getTextSelect(id: string): any;
-    export function serializeForm(id: string): any;
+    /**
+     * Semua field bernama di form menjadi { nama: nilai }. Checkbox tunggal = true/false; beberapa
+     * checkbox dengan nama yang sama dan select multiple = array nilai yang dipilih.
+     */
+    export function serializeForm(id: string): Record<string, string | boolean | string[]>;
+    /**
+     * Kebalikan serializeForm: mengisi field form dari object, misalnya data dari server untuk form
+     * edit. Hanya field yang namanya ada di data yang diubah; field file dilewati.
+     */
+    export function fillForm(id: string, data: any): any;
     export function getFileSize(id: string): any;
     export function setValue(id: string, valuecontent: any): any;
     export function setInner(id: string, content: any): any;
@@ -295,6 +377,58 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/element.min.js" {
     export function isJSLoaded(src: any): any;
     export function addJS(src: any): Promise<any>;
     export function addCSS(href: any): Promise<any>;
+}
+
+declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/form.js" {
+    /**
+     * Memeriksa semua field form id dan menampilkan/menghapus pesannya. Mengembalikan true kalau
+     * semuanya benar; kalau tidak, fokus pindah ke field salah yang pertama.
+     * options (semua opsional):
+     * rules     { namaField: (nilai, semuaNilai) => "pesan" | null } - aturan tambahan, misalnya
+     * konfirmasi kata sandi. nilai dari serializeForm.
+     * messages  { namaField: "pesan" } atau { namaField: { valueMissing: "...", tooShort: "..." } }
+     * untuk mengganti pesan bawaan.
+     * focus     false supaya fokus tidak dipindah. Bawaan true.
+     */
+    export function validateForm(id: string, options?: Record<string, any>): boolean;
+    /**
+     * Menghapus semua pesan validasi di form.
+     */
+    export function clearFormErrors(id: string): any;
+    /**
+     * Menangani submit form: mencegah reload halaman, memvalidasi, lalu memanggil
+     * onSubmit(data, event) hanya kalau semuanya benar; data dari serializeForm. Sesudah percobaan
+     * submit pertama, field diperiksa ulang setiap diubah, jadi pesannya hilang begitu diperbaiki.
+     * Pesan bawaan browser (gelembung) dimatikan dengan novalidate. options sama dengan validateForm.
+     * Mengembalikan { validate(), clear(), remove() }.
+     */
+    export function handleForm(id: string, onSubmit: any, options?: Record<string, any>): { validate(): boolean; clear(): void; remove(): void };
+}
+
+declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/form.min.js" {
+    /**
+     * Memeriksa semua field form id dan menampilkan/menghapus pesannya. Mengembalikan true kalau
+     * semuanya benar; kalau tidak, fokus pindah ke field salah yang pertama.
+     * options (semua opsional):
+     * rules     { namaField: (nilai, semuaNilai) => "pesan" | null } - aturan tambahan, misalnya
+     * konfirmasi kata sandi. nilai dari serializeForm.
+     * messages  { namaField: "pesan" } atau { namaField: { valueMissing: "...", tooShort: "..." } }
+     * untuk mengganti pesan bawaan.
+     * focus     false supaya fokus tidak dipindah. Bawaan true.
+     */
+    export function validateForm(id: string, options?: Record<string, any>): boolean;
+    /**
+     * Menghapus semua pesan validasi di form.
+     */
+    export function clearFormErrors(id: string): any;
+    /**
+     * Menangani submit form: mencegah reload halaman, memvalidasi, lalu memanggil
+     * onSubmit(data, event) hanya kalau semuanya benar; data dari serializeForm. Sesudah percobaan
+     * submit pertama, field diperiksa ulang setiap diubah, jadi pesannya hilang begitu diperbaiki.
+     * Pesan bawaan browser (gelembung) dimatikan dengan novalidate. options sama dengan validateForm.
+     * Mengembalikan { validate(), clear(), remove() }.
+     */
+    export function handleForm(id: string, onSubmit: any, options?: Record<string, any>): { validate(): boolean; clear(): void; remove(): void };
 }
 
 declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/geo.js" {
@@ -1071,6 +1205,46 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/map.min.js" {
     export function onMapContextMenu(id: string, runFunction?: (...args: any[]) => any): any;
 }
 
+declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/mapcache.js" {
+    /**
+     * Sumber tile yang tersimpan di cache. template: pola URL seperti opsi tiles di createMap
+     * ({z}, {x}, {y}, {s}, {-y}); bawaan OpenStreetMap. Server tile-nya harus mengizinkan CORS
+     * (OpenStreetMap dan Esri mengizinkan).
+     * options (semua opsional):
+     * name         nama cache. Bawaan "crootjs-tiles"; bedakan untuk tiap peta dasar.
+     * maxAge       hari sebelum tile dianggap lama dan diambil ulang saat online. Bawaan 7
+     * (paling sedikit 7 untuk server OpenStreetMap, sesuai kebijakannya).
+     * maxTiles     tile terbanyak yang disimpan; yang paling lama dibuang. Bawaan 5000.
+     * subdomains   sama dengan opsi createMap. Bawaan ["a", "b", "c"].
+     * attribution  atribusi peta dasar (teks atau elemen). Untuk template bawaan, map.js
+     * memasang atribusi OpenStreetMap sendiri.
+     * Mengembalikan { getTile(z, x, y), url, attribution, count(), clear(), downloadArea(...) },
+     * yang langsung bisa dipakai sebagai opsi tiles di createMap atau setTiles. Di browser tanpa
+     * Cache Storage, getTile memberi URL tile biasa (tanpa cache) dan peringatan di console.
+     */
+    export function cachedTiles(template?: any, options?: Record<string, any>): { getTile(z: number, x: number, y: number): Promise<Blob | string | null>; url: string; attribution: any; count(): Promise<number>; clear(): Promise<boolean>; downloadArea(bounds: number[], minZoom: number, maxZoom: number, onProgress?: (done: number, total: number) => void): Promise<{ total: number; saved: number; failed: number; error: string | null }> };
+}
+
+declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/mapcache.min.js" {
+    /**
+     * Sumber tile yang tersimpan di cache. template: pola URL seperti opsi tiles di createMap
+     * ({z}, {x}, {y}, {s}, {-y}); bawaan OpenStreetMap. Server tile-nya harus mengizinkan CORS
+     * (OpenStreetMap dan Esri mengizinkan).
+     * options (semua opsional):
+     * name         nama cache. Bawaan "crootjs-tiles"; bedakan untuk tiap peta dasar.
+     * maxAge       hari sebelum tile dianggap lama dan diambil ulang saat online. Bawaan 7
+     * (paling sedikit 7 untuk server OpenStreetMap, sesuai kebijakannya).
+     * maxTiles     tile terbanyak yang disimpan; yang paling lama dibuang. Bawaan 5000.
+     * subdomains   sama dengan opsi createMap. Bawaan ["a", "b", "c"].
+     * attribution  atribusi peta dasar (teks atau elemen). Untuk template bawaan, map.js
+     * memasang atribusi OpenStreetMap sendiri.
+     * Mengembalikan { getTile(z, x, y), url, attribution, count(), clear(), downloadArea(...) },
+     * yang langsung bisa dipakai sebagai opsi tiles di createMap atau setTiles. Di browser tanpa
+     * Cache Storage, getTile memberi URL tile biasa (tanpa cache) dan peringatan di console.
+     */
+    export function cachedTiles(template?: any, options?: Record<string, any>): { getTile(z: number, x: number, y: number): Promise<Blob | string | null>; url: string; attribution: any; count(): Promise<number>; clear(): Promise<boolean>; downloadArea(bounds: number[], minZoom: number, maxZoom: number, onProgress?: (done: number, total: number) => void): Promise<{ total: number; saved: number; failed: number; error: string | null }> };
+}
+
 declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/mapcluster.js" {
     /**
      * Menggambar fitur-fitur titik (Point/MultiPoint) di dalam `geojson` sebagai kelompok.
@@ -1350,7 +1524,8 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/mapdraw.js" {
      * Mulai menggambar satu geometri. type: "point", "line", atau "polygon" (atau "Point",
      * "LineString", "Polygon"). Klik peta menambah titik; klik ganda, Enter, atau klik titik
      * pertama poligon = selesai; Backspace = hapus titik terakhir; Esc = batal. Titik selesai
-     * dengan satu klik.
+     * dengan satu klik. Dari keyboard (peta terfokus): panah menggeser peta, Spasi menaruh titik di
+     * tanda + di tengah peta.
      * responseFunction(feature) dipanggil sekali: Feature GeoJSON hasilnya, atau null kalau
      * dibatalkan. options (semua opsional):
      * properties  object, atau function (type) => object, untuk properties Feature hasilnya.
@@ -1390,7 +1565,8 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/mapdraw.min.js" {
      * Mulai menggambar satu geometri. type: "point", "line", atau "polygon" (atau "Point",
      * "LineString", "Polygon"). Klik peta menambah titik; klik ganda, Enter, atau klik titik
      * pertama poligon = selesai; Backspace = hapus titik terakhir; Esc = batal. Titik selesai
-     * dengan satu klik.
+     * dengan satu klik. Dari keyboard (peta terfokus): panah menggeser peta, Spasi menaruh titik di
+     * tanda + di tengah peta.
      * responseFunction(feature) dipanggil sekali: Feature GeoJSON hasilnya, atau null kalau
      * dibatalkan. options (semua opsional):
      * properties  object, atau function (type) => object, untuk properties Feature hasilnya.
@@ -1803,13 +1979,17 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/mapoffline.js" {
      * Membuka file PMTiles. source: URL, atau File/Blob dari <input type="file">. URL dibaca
      * sepotong-sepotong lewat HTTP Range (Cloudflare R2, S3, nginx biasa); server yang tidak
      * melayani Range dengan benar membuat seluruh file diunduh sekali.
+     * options (opsional, hanya untuk tile vektor): style (aturan gaya, lihat mapvector.js), language
+     * (misalnya "id": nama berbahasa Indonesia kalau ada di data), tileSize (resolusi gambar, bawaan
+     * 512), overzoom (berapa level di atas zoom terbesar file masih digambar, bawaan 4).
      * responseFunction(archive, error) dipanggil sekali; juga mengembalikan Promise berisi archive
      * (atau null kalau gagal - alasannya di error dan console).
      * archive = { getTile(z, x, y), minZoom, maxZoom, bounds: [minLng, minLat, maxLng, maxLat],
-     * center: [lng, lat], centerZoom, tileType, metadata, attribution }
+     * center: [lng, lat], centerZoom, tileType, metadata, attribution, fileMaxZoom }
+     * tileType "mvt" untuk tile vektor; maxZoom-nya sudah termasuk overzoom, fileMaxZoom = isi file.
      * archive langsung bisa dipakai sebagai opsi tiles di createMap atau setTiles.
      */
-    export function openPMTiles(source: any, responseFunction?: (...args: any[]) => any): Promise<any>;
+    export function openPMTiles(source: any, responseFunction?: (...args: any[]) => any, options?: Record<string, any>): Promise<any>;
 }
 
 declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/mapoffline.min.js" {
@@ -1822,13 +2002,17 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/mapoffline.min.js" {
      * Membuka file PMTiles. source: URL, atau File/Blob dari <input type="file">. URL dibaca
      * sepotong-sepotong lewat HTTP Range (Cloudflare R2, S3, nginx biasa); server yang tidak
      * melayani Range dengan benar membuat seluruh file diunduh sekali.
+     * options (opsional, hanya untuk tile vektor): style (aturan gaya, lihat mapvector.js), language
+     * (misalnya "id": nama berbahasa Indonesia kalau ada di data), tileSize (resolusi gambar, bawaan
+     * 512), overzoom (berapa level di atas zoom terbesar file masih digambar, bawaan 4).
      * responseFunction(archive, error) dipanggil sekali; juga mengembalikan Promise berisi archive
      * (atau null kalau gagal - alasannya di error dan console).
      * archive = { getTile(z, x, y), minZoom, maxZoom, bounds: [minLng, minLat, maxLng, maxLat],
-     * center: [lng, lat], centerZoom, tileType, metadata, attribution }
+     * center: [lng, lat], centerZoom, tileType, metadata, attribution, fileMaxZoom }
+     * tileType "mvt" untuk tile vektor; maxZoom-nya sudah termasuk overzoom, fileMaxZoom = isi file.
      * archive langsung bisa dipakai sebagai opsi tiles di createMap atau setTiles.
      */
-    export function openPMTiles(source: any, responseFunction?: (...args: any[]) => any): Promise<any>;
+    export function openPMTiles(source: any, responseFunction?: (...args: any[]) => any, options?: Record<string, any>): Promise<any>;
 }
 
 declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/mapsearch.js" {
@@ -1922,7 +2106,8 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/maptools.js" {
      * Mengukur jarak (type "distance") atau luas (type "area") dengan mengklik titik-titik di
      * peta. Selama mengukur, klik peta tidak membuka popup dan tidak diteruskan ke onMapClick.
      * Selesai dengan klik ganda, Enter, atau finish(); Backspace menghapus titik terakhir; Esc
-     * membatalkan. Di layar sentuh tidak ada klik ganda: pakai finish() (tombol Selesai di
+     * membatalkan. Dari keyboard (peta terfokus): panah menggeser peta, Spasi menaruh titik di tanda +
+     * di tengah peta. Di layar sentuh tidak ada klik ganda: pakai finish() (tombol Selesai di
      * addMeasureControl).
      * responseFunction (opsional) dipanggil sekali saat selesai dengan
      * { type, feature, length, area, text } - feature berupa Feature LineString atau Polygon,
@@ -1996,7 +2181,8 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/maptools.min.js" {
      * Mengukur jarak (type "distance") atau luas (type "area") dengan mengklik titik-titik di
      * peta. Selama mengukur, klik peta tidak membuka popup dan tidak diteruskan ke onMapClick.
      * Selesai dengan klik ganda, Enter, atau finish(); Backspace menghapus titik terakhir; Esc
-     * membatalkan. Di layar sentuh tidak ada klik ganda: pakai finish() (tombol Selesai di
+     * membatalkan. Dari keyboard (peta terfokus): panah menggeser peta, Spasi menaruh titik di tanda +
+     * di tengah peta. Di layar sentuh tidak ada klik ganda: pakai finish() (tombol Selesai di
      * addMeasureControl).
      * responseFunction (opsional) dipanggil sekali saat selesai dengan
      * { type, feature, length, area, text } - feature berupa Feature LineString atau Polygon,
@@ -2055,6 +2241,44 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/maptools.min.js" {
      * exportMapImage.
      */
     export function downloadMapImage(id: string, filename?: string, responseFunction?: (...args: any[]) => any, options?: Record<string, any>): any;
+}
+
+declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/mapvector.js" {
+    /**
+     * Uint8Array berisi satu tile MVT (sudah tidak terkompresi) ->
+     * { namaLayer: { extent, features: [{ type: 1|2|3, properties, geometry }] } }.
+     * type 1 = titik, 2 = garis, 3 = poligon; geometry dari decodeGeometry.
+     */
+    export function decodeMVT(bytes: any): Record<string, { extent: number; features: { type: number; properties: Record<string, any>; geometry: number[][][] }[] }>;
+    /**
+     * Menggambar tile MVT (hasil decodeMVT) menjadi Blob PNG.
+     * zoom: zoom tile yang ditampilkan (untuk gaya). area (opsional) = { scale, dx, dy } untuk
+     * menggambar sebagian tile yang lebih rendah saat zoom melebihi isi file (overzoom): bagian
+     * [dx, dy] dari kisi scale x scale, jadi garisnya tetap tajam.
+     * options: style (array aturan, bawaan DEFAULT_VECTOR_STYLE), size (piksel, bawaan 512),
+     * language (misalnya "id": pakai name:id kalau ada), background.
+     */
+    export function renderVectorTile(layers: any, zoom: any, area?: any, options?: Record<string, any>): Promise<Blob>;
+    export const DEFAULT_VECTOR_STYLE: any;
+}
+
+declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/mapvector.min.js" {
+    /**
+     * Uint8Array berisi satu tile MVT (sudah tidak terkompresi) ->
+     * { namaLayer: { extent, features: [{ type: 1|2|3, properties, geometry }] } }.
+     * type 1 = titik, 2 = garis, 3 = poligon; geometry dari decodeGeometry.
+     */
+    export function decodeMVT(bytes: any): Record<string, { extent: number; features: { type: number; properties: Record<string, any>; geometry: number[][][] }[] }>;
+    /**
+     * Menggambar tile MVT (hasil decodeMVT) menjadi Blob PNG.
+     * zoom: zoom tile yang ditampilkan (untuk gaya). area (opsional) = { scale, dx, dy } untuk
+     * menggambar sebagian tile yang lebih rendah saat zoom melebihi isi file (overzoom): bagian
+     * [dx, dy] dari kisi scale x scale, jadi garisnya tetap tajam.
+     * options: style (array aturan, bawaan DEFAULT_VECTOR_STYLE), size (piksel, bawaan 512),
+     * language (misalnya "id": pakai name:id kalau ada), background.
+     */
+    export function renderVectorTile(layers: any, zoom: any, area?: any, options?: Record<string, any>): Promise<Blob>;
+    export const DEFAULT_VECTOR_STYLE: any;
 }
 
 declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/model3d.js" {
@@ -2305,6 +2529,21 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/model3dtools.js" {
      */
     export function addSection(id: string, options?: Record<string, any>): any;
     /**
+     * Mengukur langsung di permukaan model dengan klik/tap.
+     * mode "distance" (bawaan): dua titik -> jarak lurus. "angle": tiga titik -> sudut di titik
+     * kedua, misalnya sudut sendi atau kemiringan rangka. Klik sesudah ukuran lengkap memulai
+     * ukuran baru.
+     * options (semua opsional):
+     * mode       "distance" atau "angle"
+     * scale      meter per satuan model. Bawaan 1 (glTF memakai meter).
+     * onChange   function (result) setiap titik ditambah; result = { mode, points, distance,
+     * angle, text, complete } - distance dalam meter (mode distance), angle dalam
+     * derajat (mode angle), complete = true kalau titiknya sudah lengkap.
+     * Selama mengukur, klik model tetap diteruskan ke onModelClick.
+     * Mengembalikan { getResult(), clear(), remove() }.
+     */
+    export function measureModel(id: string, options?: Record<string, any>): { getResult(): { mode: string; points: number[][]; distance: number | null; angle: number | null; text: string; complete: boolean }; clear(): void; remove(): void };
+    /**
      * Tautan yang membuka model di Scene Viewer (aplikasi AR Google di Android): model tampil di
      * ruangan lewat kamera, bisa digeser dan diputar. url harus .glb/.gltf yang bisa diunduh publik
      * lewat HTTPS (bukan blob: atau file lokal). options: title, mode ("ar_preferred" bawaan,
@@ -2312,11 +2551,33 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/model3dtools.js" {
      */
     export function getARLink(url: string, options?: Record<string, any>): any;
     /**
+     * true kalau browser bisa membuka sesi AR WebXR (Chrome Android dengan ARCore; Safari iOS
+     * belum). Promise<boolean>.
+     */
+    export function isARSupported(): Promise<boolean>;
+    /**
+     * Membuka model yang sedang tampil di penampil id dalam AR di dalam halaman: kamera ponsel
+     * menampilkan ruangan, model mengikuti lantai/meja yang terdeteksi, dan ketukan menaruhnya di
+     * sana (ketuk lagi untuk memindahkan). Model tampil dengan ukuran sebenarnya (glTF = meter).
+     * Harus dipanggil dari klik/tap pengguna (aturan browser). Butuh WebXR dengan hit-test: Chrome
+     * di Android ber-ARCore; di perangkat lain pakai addARButton (Scene Viewer/Quick Look).
+     * options (semua opsional):
+     * scale    pengali ukuran. Bawaan 1.
+     * hint     teks petunjuk. Bawaan "Arahkan kamera ke lantai, lalu ketuk untuk menaruh model."
+     * onPlace  function (position) setiap model ditaruh; position [x, y, z] dalam meter.
+     * onEnd    function () saat AR ditutup.
+     * Mengembalikan Promise { supported, end() } - supported = false (dengan peringatan di console)
+     * kalau sesi AR tidak bisa dibuka.
+     */
+    export function startAR(id: string, options?: Record<string, any>): Promise<{ supported: boolean; end(): void }>;
+    /**
      * Tombol "Lihat di AR" di pojok penampil. Di Android membuka Scene Viewer dengan url; di iPhone
      * dan iPad membuka AR Quick Look - tapi hanya kalau options.usdz diisi (Quick Look tidak bisa
      * membuka .glb; ubah dulu ke .usdz, misalnya dengan Reality Converter). Di perangkat lain
      * tombolnya tidak ditambahkan.
-     * options: title, usdz, label (bawaan "Lihat di AR"), mode, fallback.
+     * options: title, usdz, label (bawaan "Lihat di AR"), mode, fallback, dan webxr: true supaya di
+     * perangkat yang bisa (Chrome Android) AR dibuka di dalam halaman lewat startAR (opsi startAR
+     * ikut dipakai), tanpa pindah ke Scene Viewer.
      * Mengembalikan { supported, remove() } - supported = false kalau tombolnya tidak ditambahkan.
      */
     export function addARButton(id: string, url: string, options?: Record<string, any>): any;
@@ -2403,6 +2664,21 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/model3dtools.min.js" {
      */
     export function addSection(id: string, options?: Record<string, any>): any;
     /**
+     * Mengukur langsung di permukaan model dengan klik/tap.
+     * mode "distance" (bawaan): dua titik -> jarak lurus. "angle": tiga titik -> sudut di titik
+     * kedua, misalnya sudut sendi atau kemiringan rangka. Klik sesudah ukuran lengkap memulai
+     * ukuran baru.
+     * options (semua opsional):
+     * mode       "distance" atau "angle"
+     * scale      meter per satuan model. Bawaan 1 (glTF memakai meter).
+     * onChange   function (result) setiap titik ditambah; result = { mode, points, distance,
+     * angle, text, complete } - distance dalam meter (mode distance), angle dalam
+     * derajat (mode angle), complete = true kalau titiknya sudah lengkap.
+     * Selama mengukur, klik model tetap diteruskan ke onModelClick.
+     * Mengembalikan { getResult(), clear(), remove() }.
+     */
+    export function measureModel(id: string, options?: Record<string, any>): { getResult(): { mode: string; points: number[][]; distance: number | null; angle: number | null; text: string; complete: boolean }; clear(): void; remove(): void };
+    /**
      * Tautan yang membuka model di Scene Viewer (aplikasi AR Google di Android): model tampil di
      * ruangan lewat kamera, bisa digeser dan diputar. url harus .glb/.gltf yang bisa diunduh publik
      * lewat HTTPS (bukan blob: atau file lokal). options: title, mode ("ar_preferred" bawaan,
@@ -2410,11 +2686,33 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/model3dtools.min.js" {
      */
     export function getARLink(url: string, options?: Record<string, any>): any;
     /**
+     * true kalau browser bisa membuka sesi AR WebXR (Chrome Android dengan ARCore; Safari iOS
+     * belum). Promise<boolean>.
+     */
+    export function isARSupported(): Promise<boolean>;
+    /**
+     * Membuka model yang sedang tampil di penampil id dalam AR di dalam halaman: kamera ponsel
+     * menampilkan ruangan, model mengikuti lantai/meja yang terdeteksi, dan ketukan menaruhnya di
+     * sana (ketuk lagi untuk memindahkan). Model tampil dengan ukuran sebenarnya (glTF = meter).
+     * Harus dipanggil dari klik/tap pengguna (aturan browser). Butuh WebXR dengan hit-test: Chrome
+     * di Android ber-ARCore; di perangkat lain pakai addARButton (Scene Viewer/Quick Look).
+     * options (semua opsional):
+     * scale    pengali ukuran. Bawaan 1.
+     * hint     teks petunjuk. Bawaan "Arahkan kamera ke lantai, lalu ketuk untuk menaruh model."
+     * onPlace  function (position) setiap model ditaruh; position [x, y, z] dalam meter.
+     * onEnd    function () saat AR ditutup.
+     * Mengembalikan Promise { supported, end() } - supported = false (dengan peringatan di console)
+     * kalau sesi AR tidak bisa dibuka.
+     */
+    export function startAR(id: string, options?: Record<string, any>): Promise<{ supported: boolean; end(): void }>;
+    /**
      * Tombol "Lihat di AR" di pojok penampil. Di Android membuka Scene Viewer dengan url; di iPhone
      * dan iPad membuka AR Quick Look - tapi hanya kalau options.usdz diisi (Quick Look tidak bisa
      * membuka .glb; ubah dulu ke .usdz, misalnya dengan Reality Converter). Di perangkat lain
      * tombolnya tidak ditambahkan.
-     * options: title, usdz, label (bawaan "Lihat di AR"), mode, fallback.
+     * options: title, usdz, label (bawaan "Lihat di AR"), mode, fallback, dan webxr: true supaya di
+     * perangkat yang bisa (Chrome Android) AR dibuka di dalam halaman lewat startAR (opsi startAR
+     * ikut dipakai), tanpa pindah ke Scene Viewer.
      * Mengembalikan { supported, remove() } - supported = false kalau tombolnya tidak ditambahkan.
      */
     export function addARButton(id: string, url: string, options?: Record<string, any>): any;
@@ -2579,6 +2877,10 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/url.js" {
     export function getProtocol(): any;
     export function getHost(): any;
     export function fullPath(): any;
+    /**
+     * Folder halaman ini: nama file di akhir path (bagian terakhir yang bertitik, misalnya
+     * index.html atau app.min.js) dibuang. Path yang berakhir tanpa nama file dikembalikan apa adanya.
+     */
     export function folderPath(): any;
     export function getPath(): any;
     export function getQueryString(): any;
@@ -2593,6 +2895,10 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/url.min.js" {
     export function getProtocol(): any;
     export function getHost(): any;
     export function fullPath(): any;
+    /**
+     * Folder halaman ini: nama file di akhir path (bagian terakhir yang bertitik, misalnya
+     * index.html atau app.min.js) dibuang. Path yang berakhir tanpa nama file dikembalikan apa adanya.
+     */
     export function folderPath(): any;
     export function getPath(): any;
     export function getQueryString(): any;

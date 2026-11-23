@@ -10,16 +10,12 @@ export function fullPath(){
     return window.location.pathname;
 }
 
+// Folder halaman ini: nama file di akhir path (bagian terakhir yang bertitik, misalnya
+// index.html atau app.min.js) dibuang. Path yang berakhir tanpa nama file dikembalikan apa adanya.
 export function folderPath(){
-    let fpth=window.location.pathname;
-    let dotArray = fpth.split(".");
-    if (dotArray.length > 1){
-        let extension = dotArray.pop();
-        let slashArray = dotArray[0].split("/");
-        let filename = slashArray.pop();
-        fpth=fpth.replace(filename+"."+extension,"");
-    }
-    return fpth;
+    const path = window.location.pathname;
+    const last = path.slice(path.lastIndexOf("/") + 1);
+    return last.includes(".") ? path.slice(0, path.length - last.length) : path;
 }
 
 export function getPath(){

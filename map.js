@@ -523,7 +523,10 @@ function configureTiles(state, tiles, options) {
     applyZoomRange(state, options.minZoom, options.maxZoom);
     state.tileGeneration = (state.tileGeneration || 0) + 1;
     if (!state.tileURL) [...state.tiles.keys()].forEach(key => removeTile(state, key));
-    state.baseAttribution = options.attribution || (useDefault ? OSM_ATTRIBUTION : null);
+    // Sumber tile berupa object membawa atribusinya sendiri (arsip PMTiles, cachedTiles); yang
+    // mengambil dari server OpenStreetMap mendapat atribusi OSM seperti peta bawaan.
+    const own = tiles && typeof tiles === "object" ? (tiles.url === DEFAULT_TILES ? OSM_ATTRIBUTION : tiles.attribution) : null;
+    state.baseAttribution = options.attribution || own || (useDefault ? OSM_ATTRIBUTION : null);
     renderAttribution(state);
 }
 

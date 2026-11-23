@@ -70,6 +70,29 @@ function injectStyles() {
     cursor: pointer;
 }
 .crootjs-map-measure-actions button:hover { background-color: #f3f4f6; }
+.crootjs-map-crosshair {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 24px;
+    height: 24px;
+    margin: -12px 0 0 -12px;
+    pointer-events: none;
+    display: none;
+    background:
+        linear-gradient(#1f2937, #1f2937) center / 2px 100% no-repeat,
+        linear-gradient(#1f2937, #1f2937) center / 100% 2px no-repeat;
+    filter: drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff);
+}
+.crootjs-map:focus-visible > .crootjs-map-crosshair { display: block; }
+.crootjs-map-status {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
 `;
     // Di awal <head> (sesudah style CrootJS lain), bukan di akhir: CSS halaman yang ditautkan
     // sesudahnya menang tanpa !important, jadi tampilan bawaan ini mudah ditimpa.
@@ -119,7 +142,8 @@ function measurement(type, points) {
 // Mengukur jarak (type "distance") atau luas (type "area") dengan mengklik titik-titik di
 // peta. Selama mengukur, klik peta tidak membuka popup dan tidak diteruskan ke onMapClick.
 // Selesai dengan klik ganda, Enter, atau finish(); Backspace menghapus titik terakhir; Esc
-// membatalkan. Di layar sentuh tidak ada klik ganda: pakai finish() (tombol Selesai di
+// membatalkan. Dari keyboard (peta terfokus): panah menggeser peta, Spasi menaruh titik di tanda +
+// di tengah peta. Di layar sentuh tidak ada klik ganda: pakai finish() (tombol Selesai di
 // addMeasureControl).
 // responseFunction (opsional) dipanggil sekali saat selesai dengan
 // { type, feature, length, area, text } - feature berupa Feature LineString atau Polygon,
@@ -147,9 +171,19 @@ export function measure(id, type, responseFunction, options = {}) {
     const label = document.createElementNS(SVG_NS, "text");
     svg.append(path, vertices, label);
     map.overlay.appendChild(svg);
+    // Dari keyboard: Spasi menaruh titik di tanda + di tengah peta; hasilnya dibacakan pembaca
+    // layar lewat status yang tidak terlihat.
+    const crosshair = document.createElement("div");
+    crosshair.className = "crootjs-map-crosshair";
+    const status = document.createElement("div");
+    status.className = "crootjs-map-status";
+    status.setAttribute("role", "status");
+    map.root.append(crosshair, status);
+    const center = () => map.toPosition([map.root.clientWidth / 2, map.root.clientHeight / 2]);
 
     const draw = () => {
-        const drawn = finished || !cursor ? points : [...points, cursor];
+        const tip = finished ? null : map.root.matches(":focus-visible") ? center() : cursor;
+        const drawn = tip ? [...points, tip] : points;
         const screen = drawn.map(map.toPoint);
         let d = screen.map((point, index) => (index ? "L" : "M") + point[0].toFixed(1) + " " + point[1].toFixed(1)).join("");
         if (kind === "area" && screen.length >= 3) d += "Z";
@@ -177,7 +211,9 @@ export function measure(id, type, responseFunction, options = {}) {
     };
     const changed = () => {
         draw();
-        if (typeof options.onChange === "function") options.onChange(measurement(kind, points));
+        const result = measurement(kind, points);
+        status.textContent = `Titik ${points.length}.` + (result.text && points.length >= 2 ? " " + result.text : "");
+        if (typeof options.onChange === "function") options.onChange(result);
     };
 
     const add = position => {
@@ -216,6 +252,9 @@ export function measure(id, type, responseFunction, options = {}) {
         map.root.removeEventListener("pointermove", move);
         map.root.removeEventListener("pointerleave", leave);
         document.removeEventListener("keydown", keys);
+        map.root.removeEventListener("focus", draw);
+        map.root.removeEventListener("blur", draw);
+        crosshair.remove();
     };
     const respond = result => {
         if (typeof responseFunction === "function") responseFunction(result);
@@ -227,7 +266,9 @@ export function measure(id, type, responseFunction, options = {}) {
         cursor = null;
         detach();
         draw();
-        respond(measurement(kind, points));
+        const result = measurement(kind, points);
+        status.textContent = "Selesai. " + result.text;
+        respond(result);
     }
     const undo = () => {
         if (finished || points.length === 0) return;
@@ -240,6 +281,7 @@ export function measure(id, type, responseFunction, options = {}) {
         detach();
         stopFollowing();
         svg.remove();
+        status.remove();
         if (map.root.crootjsMeasure === controller) delete map.root.crootjsMeasure;
         if (running) respond(null);
     };
@@ -249,10 +291,13 @@ export function measure(id, type, responseFunction, options = {}) {
         if (event.key === "Escape") stop();
         else if (event.key === "Enter") finish();
         else if (event.key === "Backspace") undo();
+        else if (event.key === " " && event.target === map.root) add(center());
         else return;
         event.preventDefault();
     }
     document.addEventListener("keydown", keys);
+    map.root.addEventListener("focus", draw);
+    map.root.addEventListener("blur", draw);
 
     const controller = { finish, undo, stop };
     map.root.crootjsMeasure = controller;
@@ -314,7 +359,7 @@ export function addMeasureControl(id, options = {}) {
         panel.hidden = true;
         setActive(null);
     }
-    const hint = type => (type === "area" ? "Klik titik-titik batas area." : "Klik titik-titik di sepanjang jalur.");
+    const hint = type => (type === "area" ? "Klik titik-titik batas area." : "Klik titik-titik di sepanjang jalur.") + " Keyboard: panah menggeser peta, Spasi menaruh titik.";
     const start = type => {
         if (currentType === type) {
             end();
@@ -356,7 +401,11 @@ export function addMeasureControl(id, options = {}) {
         button.setAttribute("aria-label", label);
         button.setAttribute("aria-pressed", "false");
         button.innerHTML = icon;
-        button.addEventListener("click", () => start(type));
+        button.addEventListener("click", event => {
+            start(type);
+            // Dipilih dari keyboard (detail 0): fokus pindah ke peta supaya bisa langsung mengukur.
+            if (event.detail === 0) map.root.focus();
+        });
         buttons.appendChild(button);
         tools[type] = button;
     };

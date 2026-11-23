@@ -1,11 +1,15 @@
 // Modul tambahan untuk map.js: peta dasar dari satu file PMTiles (https://docs.protomaps.com/pmtiles/),
 // dari server biasa (dibaca sepotong-sepotong lewat HTTP Range) atau dari file di perangkat
 // (<input type="file">) - yang terakhir ini jalan tanpa internet sama sekali.
-// Hanya PMTiles versi 3 berisi tile raster (PNG, JPEG, WebP, AVIF); tile vektor belum didukung.
+// PMTiles versi 3 berisi tile raster (PNG, JPEG, WebP, AVIF) atau tile vektor (MVT). Tile vektor
+// digambar menjadi gambar di browser oleh mapvector.js, termasuk di atas zoom terbesar file-nya
+// (tetap tajam).
 // Tidak mengimpor map.js: hasilnya diberikan ke createMap/setTiles lewat opsi tiles.
+import { decodeMVT, renderVectorTile } from "./mapvector.js";
 
 const HEADER_BYTES = 127;
-const MAX_DEPTH = 4; // root + leaf directory, sesuai spesifikasi paling banyak 3 tingkat
+const MAX_DEPTH = 4;
+const DECODED_TILES = 32; // tile vektor yang sudah diurai, untuk overzoom (banyak tile anak dari satu induk) // root + leaf directory, sesuai spesifikasi paling banyak 3 tingkat
 const TILE_TYPES = { 1: "mvt", 2: "image/png", 3: "image/jpeg", 4: "image/webp", 5: "image/avif" };
 
 // Bilangan bulat tanpa tanda varint (LEB128) di posisi state.offset.
@@ -135,15 +139,25 @@ function rangeTotal(response) {
     return match ? Number(match[1]) : Infinity;
 }
 
+// Atribusi di metadata sering berupa HTML (<a href=...>&copy; ...</a>); map.js memasangnya
+// sebagai teks, jadi tag-nya dibuang di sini.
+function plainText(html) {
+    return new DOMParser().parseFromString(html, "text/html").body.textContent.trim();
+}
+
 // Membuka file PMTiles. source: URL, atau File/Blob dari <input type="file">. URL dibaca
 // sepotong-sepotong lewat HTTP Range (Cloudflare R2, S3, nginx biasa); server yang tidak
 // melayani Range dengan benar membuat seluruh file diunduh sekali.
+// options (opsional, hanya untuk tile vektor): style (aturan gaya, lihat mapvector.js), language
+// (misalnya "id": nama berbahasa Indonesia kalau ada di data), tileSize (resolusi gambar, bawaan
+// 512), overzoom (berapa level di atas zoom terbesar file masih digambar, bawaan 4).
 // responseFunction(archive, error) dipanggil sekali; juga mengembalikan Promise berisi archive
 // (atau null kalau gagal - alasannya di error dan console).
 // archive = { getTile(z, x, y), minZoom, maxZoom, bounds: [minLng, minLat, maxLng, maxLat],
-//             center: [lng, lat], centerZoom, tileType, metadata, attribution }
+//             center: [lng, lat], centerZoom, tileType, metadata, attribution, fileMaxZoom }
+// tileType "mvt" untuk tile vektor; maxZoom-nya sudah termasuk overzoom, fileMaxZoom = isi file.
 // archive langsung bisa dipakai sebagai opsi tiles di createMap atau setTiles.
-export async function openPMTiles(source, responseFunction) {
+export async function openPMTiles(source, responseFunction, options = {}) {
     const respond = (archive, error) => {
         if (typeof responseFunction === "function") responseFunction(archive, error);
         return archive;
@@ -164,7 +178,7 @@ export async function openPMTiles(source, responseFunction) {
             minZoom: header[100], maxZoom: header[101]
         };
         const mime = TILE_TYPES[info.tileType];
-        if (mime === "mvt") throw new Error("file ini berisi tile vektor (MVT), yang belum didukung; pakai PMTiles raster");
+        const vector = mime === "mvt";
         const degrees = offset => view.getInt32(offset, true) / 1e7;
 
         let metadata = {};
@@ -185,32 +199,61 @@ export async function openPMTiles(source, responseFunction) {
             return directories.get(offset);
         };
 
+        // Bytes satu tile apa adanya di file (sudah dibuka kompresinya), atau null.
+        const readTile = async (z, x, y) => {
+            const id = tileId(z, x, y);
+            let offset = info.rootOffset;
+            let length = info.rootLength;
+            for (let depth = 0; depth < MAX_DEPTH; depth++) {
+                const entry = findEntry(await directory(offset, length), id);
+                if (!entry) return null;
+                if (entry.runLength > 0) return decompress(await read(info.dataOffset + entry.offset, entry.length), info.tileCompression);
+                offset = info.leafOffset + entry.offset;
+                length = entry.length;
+            }
+            return null;
+        };
+
+        const decoded = new Map(); // "z/x/y" -> Promise layers, paling baru di belakang
+        const vectorLayers = (z, x, y) => {
+            const key = `${z}/${x}/${y}`;
+            let layers = decoded.get(key);
+            if (layers) decoded.delete(key);
+            else layers = readTile(z, x, y).then(bytes => (bytes ? decodeMVT(bytes) : null));
+            decoded.set(key, layers);
+            if (decoded.size > DECODED_TILES) decoded.delete(decoded.keys().next().value);
+            return layers;
+        };
+        const overzoom = Number.isFinite(options.overzoom) ? options.overzoom : 4;
+        const renderOptions = { style: options.style, language: options.language, size: options.tileSize };
+
         const archive = {
             minZoom: info.minZoom,
-            maxZoom: info.maxZoom,
+            maxZoom: vector ? info.maxZoom + overzoom : info.maxZoom,
+            fileMaxZoom: info.maxZoom,
             bounds: [degrees(102), degrees(106), degrees(110), degrees(114)],
             center: [degrees(119), degrees(123)],
             centerZoom: header[118],
             tileType: mime || "unknown",
             metadata,
-            attribution: typeof metadata.attribution === "string" ? metadata.attribution : null,
+            attribution: typeof metadata.attribution === "string" ? plainText(metadata.attribution) : null,
             // Blob tile itu, atau null kalau file tidak punya tile di sana.
             async getTile(z, x, y) {
-                if (z < info.minZoom || z > info.maxZoom) return null;
-                const id = tileId(z, x, y);
-                let offset = info.rootOffset;
-                let length = info.rootLength;
-                for (let depth = 0; depth < MAX_DEPTH; depth++) {
-                    const entry = findEntry(await directory(offset, length), id);
-                    if (!entry) return null;
-                    if (entry.runLength > 0) {
-                        const bytes = await decompress(await read(info.dataOffset + entry.offset, entry.length), info.tileCompression);
-                        return new Blob([bytes], { type: mime || "application/octet-stream" });
-                    }
-                    offset = info.leafOffset + entry.offset;
-                    length = entry.length;
+                if (z < info.minZoom) return null;
+                if (!vector) {
+                    if (z > info.maxZoom) return null;
+                    const bytes = await readTile(z, x, y);
+                    return bytes ? new Blob([bytes], { type: mime || "application/octet-stream" }) : null;
                 }
-                return null;
+                if (z > info.maxZoom + overzoom) return null;
+                // Di atas zoom terbesar file: bagian dari tile induknya, digambar ulang tajam.
+                const scale = Math.pow(2, Math.max(0, z - info.maxZoom));
+                const parentX = Math.floor(x / scale);
+                const parentY = Math.floor(y / scale);
+                const layers = await vectorLayers(z - Math.log2(scale), parentX, parentY);
+                if (!layers) return null;
+                const area = scale > 1 ? { scale, dx: x - parentX * scale, dy: y - parentY * scale } : null;
+                return renderVectorTile(layers, z, area, renderOptions);
             }
         };
         return respond(archive);

@@ -2,6 +2,23 @@
 
 All notable changes to CrootJS. Versions are git tags, served by jsDelivr as `https://cdn.jsdelivr.net/gh/crootjs/lib@<version>/<module>.js`; each is also a [GitHub release](https://github.com/crootjs/lib/releases).
 
+## [0.0.30](https://github.com/crootjs/lib/releases/tag/v0.0.30) - 2026-11-23
+
+**Uploads with progress, form validation, offline tile cache, vector PMTiles, keyboard drawing, 3D measuring and in-page AR**
+
+- **api.js** - `uploadFile` (multipart upload from an input id, File/Blob, FileList or FormData; `onProgress`, idle `timeout`, `signal`, extra `data` fields) and `downloadFile` (Blob for 2xx, optional `fileName` to save), both with the same `{ status, data, headers, error }` result as `getJSON` and awaitable. New `signal` option on all JSON functions to cancel a request (`error: "abort"`, no console warning). The older file helpers keep their behavior.
+- **form.js (new)** - `handleForm`, `validateForm`, `clearFormErrors`: messages under each invalid field from the HTML attributes (`required`, `type`, `minlength`, `pattern`, ...) plus custom rules, Indonesian default messages, `aria-invalid` and `aria-describedby`, focus on the first invalid field.
+- **element.js** - `fillForm(id, data)`, the counterpart of `serializeForm`. `serializeForm` now returns arrays for several checkboxes with the same name and for `<select multiple>` (previously the last checkbox overwrote the others and only the first selected option was read).
+- **Fixes found while checking the old docs against the code** - `element.js`: `getValueSelect`/`getTextSelect` always threw a `TypeError` (they now find the `<select>` by id, or by name), and `getValueRadio` no longer logs every radio to the console. `cookie.js`: `getCookie` decoded twice, so values with `;` were cut and values with `%` threw; names with spaces were never found. `url.js`: `folderPath` kept `/js/app.min.js` unchanged and turned `/v1.2/page` into `/`; it now strips only a last segment that contains a dot.
+- **mapcache.js (new)** - `cachedTiles(template)`: every basemap tile that was viewed is kept in Cache Storage and shown when offline; `downloadArea` for own tile servers (refused for tile.openstreetmap.org, whose policy forbids bulk downloads).
+- **mapvector.js (new)** and **mapoffline.js** - PMTiles with vector tiles (MVT) are drawn in the browser, with a default style for the Protomaps basemap schema, `language` for local place names, custom styles, and sharp overzoom above the file's max zoom. Attribution from PMTiles metadata is converted from HTML to text.
+- **map.js** - a tile source object may carry its own `attribution`, and one whose `url` is the OpenStreetMap server gets the OSM attribution automatically.
+- **mapdraw.js and maptools.js** - drawing and measuring with the keyboard: a crosshair at the map center, arrows to pan, Space to add a point, Enter to finish; points and results are announced to screen readers. Tool buttons chosen from the keyboard move focus to the map.
+- **model3dtools.js** - `measureModel` (distance or angle between points on the model surface) and in-page AR with WebXR: `isARSupported`, `startAR` (surface preview, tap to place, real size), and `addARButton(..., { webxr: true })`. `startAR` was tested with a simulated WebXR session, not yet on an AR device.
+- **model3d.js** - the model drawing step is separated so WebXR can draw with the device camera; the normal render always targets the canvas.
+- **tests/** - 82 tests, run in CI on Chromium, Firefox and WebKit (the 3D tests need WebGL and are skipped in headless Firefox). New tests cover stp.js, websocket.js, image.js, trace.js and the older api.js file helpers. CI actions updated to versions running on Node 24.
+- **docs** - api.js page rewritten; older module pages checked against the code and tidied.
+
 ## [0.0.29](https://github.com/crootjs/lib/releases/tag/v0.0.29) - 2026-11-23
 
 **api.js options and response headers, storage.js survives blocked storage**

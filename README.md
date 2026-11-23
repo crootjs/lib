@@ -32,7 +32,7 @@ Using an AI coding agent? Drop [`CLAUDE.md`](CLAUDE.md) (in this repo) into your
 python3 -m http.server      # from this folder, then open http://localhost:8000/tests/
 ```
 
-or online at https://croot.js.org/lib/tests/. CI runs the same page headless on every push and tag ([`.github/workflows/test.yml`](.github/workflows/test.yml)); to do that locally: `pip install playwright && python -m playwright install chromium && python tests/run.py`.
+or online at https://croot.js.org/lib/tests/. CI runs the same page headless in Chromium, Firefox, and WebKit on every push and tag ([`.github/workflows/test.yml`](.github/workflows/test.yml)); to do that locally: `pip install playwright && python -m playwright install chromium && python tests/run.py` (add `firefox` or `webkit` to pick another browser). The 3D tests need WebGL, which headless Firefox doesn't provide without a GPU, so they show as skipped there; Chromium and WebKit run all of them.
 
 Changes per version: [CHANGELOG.md](CHANGELOG.md).
 
