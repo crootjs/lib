@@ -116,9 +116,10 @@ describe("api.js: uploadFile", () => {
         }
     });
     test("server sungguhan: status dan body asli", async () => {
-        // Server uji (python http.server) tidak menerima POST: 501 dengan body HTML.
+        // Server statis tidak menerima POST: python http.server menjawab 501, GitHub Pages 405,
+        // keduanya dengan body HTML.
         const result = await uploadFile(new URL("./", location.href).href, new File(["isi"], "c.txt"), null);
-        assert.equal(result.status, 501);
+        assert.ok(result.status >= 400, `status ${result.status}`);
         assert.equal(result.data, null);
         assert.equal(result.error, null);
     });
@@ -130,7 +131,7 @@ describe("api.js: downloadFile dan fungsi file lama", () => {
         assert.equal(ok.status, 200);
         assert.ok(ok.data instanceof Blob && ok.data.size > 0);
         const missing = await downloadFile("./fixtures/tidak-ada.bin");
-        assert.equal(missing.status, 404);
+        assert.ok(missing.status >= 400, `status ${missing.status}`); // 404, kadang 503 di GitHub Pages
         assert.ok(!(missing.data instanceof Blob));
     });
     test("postFile, postFileJSON, getFileBytesWithHeader tetap seperti dulu", async () => {
