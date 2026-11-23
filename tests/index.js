@@ -20,5 +20,6 @@ import "./router.test.js";
 
 import "./chart.test.js";
 import "./markdown.test.js";
+import "./toast.test.js";
 
 run();

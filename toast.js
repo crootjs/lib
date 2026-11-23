@@ -1,10 +1,8 @@
-let stylesInjected = false;
-
 function injectStyles() {
-    if (stylesInjected) return;
-    stylesInjected = true;
+    if (document.getElementById("crootjs-toast-style")) return;
     const style = document.createElement("style");
     style.id = "crootjs-toast-style";
+    // Warna dari variabel croot.css (kontras AA, ikut mode gelap); nilai cadangannya warna terang croot.css.
     style.textContent = `
 .crootjs-toast-container {
     position: fixed;
@@ -18,10 +16,10 @@ function injectStyles() {
 }
 .crootjs-toast {
     min-width: 240px;
-    max-width: 360px;
+    max-width: min(360px, calc(100vw - 32px));
     padding: 12px 16px;
     border-radius: 8px;
-    color: #fff;
+    color: var(--croot-accent-text, #fff);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-size: 14px;
     line-height: 1.4;
@@ -35,21 +33,38 @@ function injectStyles() {
     opacity: 1;
     transform: translateX(0);
 }
-.crootjs-toast-success { background-color: #17A962; }
-.crootjs-toast-error { background-color: #E5484D; }
-.crootjs-toast-warning { background-color: #F5A623; color: #111827; }
-.crootjs-toast-info { background-color: #007AFF; }
+.crootjs-toast-success { background-color: var(--croot-success, #15803d); }
+.crootjs-toast-error { background-color: var(--croot-danger, #b91c1c); }
+.crootjs-toast-warning { background-color: var(--croot-warning, #a16207); }
+.crootjs-toast-info { background-color: var(--croot-info, #1d4ed8); }
+@media (prefers-reduced-motion: reduce) {
+    .crootjs-toast { transition: none; transform: none; }
+}
 `;
-    document.head.appendChild(style);
+    // Di awal <head>, supaya CSS proyek bisa menimpanya tanpa selektor yang lebih spesifik.
+    const previous = [...document.head.querySelectorAll('style[id^="crootjs-"]')].pop();
+    if (previous) previous.after(style);
+    else document.head.prepend(style);
 }
 
+// Live region yang baru dibuat belum dipantau pembaca layar, jadi isi yang langsung masuk tidak
+// dibacakan. Selama 100 ms pertama toast diantrekan di Promise ini (urutannya tetap).
+let containerReady = null;
+
+// Wadahnya sekaligus live region: pembaca layar membacakan setiap toast yang ditambahkan.
 function getContainer() {
     let el = document.getElementById("crootjs-toast-container");
     if (!el) {
         el = document.createElement("div");
         el.id = "crootjs-toast-container";
         el.className = "crootjs-toast-container";
+        el.setAttribute("aria-live", "polite");
         document.body.appendChild(el);
+        const ready = new Promise((resolve) => setTimeout(resolve, 100));
+        containerReady = ready;
+        ready.then(() => {
+            if (containerReady === ready) containerReady = null;
+        });
     }
     return el;
 }
@@ -63,8 +78,15 @@ export function toast(message, type = "info", duration = 3000) {
 
     const el = document.createElement("div");
     el.className = `crootjs-toast crootjs-toast-${type}`;
+    // Galat dibacakan segera, memotong apa pun yang sedang dibacakan.
+    if (type === "error") el.setAttribute("role", "alert");
     el.textContent = message;
-    container.appendChild(el);
+    const show = () => {
+        container.appendChild(el);
+        requestAnimationFrame(() => { if (!dismissed) el.classList.add("crootjs-toast-visible"); });
+    };
+    if (containerReady) containerReady.then(show);
+    else show();
 
     let dismissed = false;
     function dismiss() {
@@ -80,8 +102,6 @@ export function toast(message, type = "info", duration = 3000) {
         el.addEventListener("transitionend", remove, { once: true });
         setTimeout(remove, 250); // fallback in case transitionend never fires (e.g. prefers-reduced-motion)
     }
-
-    requestAnimationFrame(() => el.classList.add("crootjs-toast-visible"));
 
     if (duration > 0) {
         setTimeout(dismiss, duration);

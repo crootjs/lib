@@ -2,6 +2,14 @@
 
 All notable changes to CrootJS. Versions are git tags, served by jsDelivr as `https://cdn.jsdelivr.net/gh/crootjs/lib@<version>/<module>.js`; each is also a [GitHub release](https://github.com/crootjs/lib/releases).
 
+## [0.0.34](https://github.com/crootjs/lib/releases/tag/v0.0.34) - 2026-11-24
+
+**toast.js is announced by screen readers and readable in dark mode**
+
+- **toast.js** - the container is an `aria-live="polite"` region and error toasts have `role="alert"`, so screen readers announce them (before, nothing was announced). Toasts shown right after the container is created wait 100 ms, in order, so the new live region is picked up first. Colors now come from croot.css (`--croot-success`, `--croot-danger`, `--croot-warning`, `--croot-info`, text `--croot-accent-text`), with the croot.css light values as fallback: the old green, red and blue had white text below the WCAG AA contrast of 4.5:1 (3.0, 3.9 and 4.0), and with croot.css the toasts follow dark mode. The `<style>` is inserted at the start of `<head>`, so project CSS overrides it without extra specificity. Animation is off with `prefers-reduced-motion`, and toasts fit screens narrower than 392px.
+- **tests/** - 169 tests, including toast.js.
+- **Release workflow** - writes `version.json` (served at https://croot.js.org/lib/version.json) instead of sending a repository dispatch; docs, examples and the landing page check it every hour and bump their own pins.
+
 ## [0.0.33](https://github.com/crootjs/lib/releases/tag/v0.0.33) - 2026-11-24
 
 **Dashboard modules (router, table, chart, icons), markdown, QR codes, PWA, and auth.js without third-party scripts**
