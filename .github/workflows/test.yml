@@ -1,8 +1,8 @@
 # Setiap push dan pull request: jalankan tests/index.html di Chromium, Firefox, dan WebKit headless.
 # Setiap push ke main yang lolos uji: buat tag dan GitHub Release dari CHANGELOG.md
 # (tools/release.py) - hanya kalau versi teratasnya belum punya tag/release. Kalau versi baru
-# dibuat: tunggu jsDelivr, naikkan pin di README repo ini, dan tulis versinya ke version.txt
-# (tayang di croot.js.org/lib/version.txt). crootjs/docs, crootjs/examples, dan
+# dibuat: tunggu jsDelivr, naikkan pin di README repo ini, dan tulis versinya ke version.json
+# (tayang di croot.js.org/lib/version.json; juga dibaca landing page). crootjs/docs, crootjs/examples, dan
 # crootjs/crootjs.github.io mengecek file itu tiap jam, lalu menaikkan pin, membangun ulang
 # sitemap/llms-full, menjalankan uji live, dan mengirim notifikasi. Tanpa token antar-repo.
 # Playwright (Python) hanya dipakai untuk menjalankan uji; pengguna CrootJS tetap tanpa npm.
@@ -106,8 +106,8 @@ jobs:
           sh tools/bump-pins.sh "$VERSION"
           # Ditulis setelah jsDelivr siap, jadi repo lain yang membaca file ini dari GitHub Pages
           # tidak pernah memasang pin ke versi yang masih 404.
-          echo "$VERSION" > version.txt
-          git add version.txt
+          echo "{\"version\": \"$VERSION\"}" > version.json
+          git add version.json
           git commit -am "bump pins to lib@$VERSION"
           # Push dengan GITHUB_TOKEN tidak memicu workflow ini lagi, tetapi tetap membangun Pages.
           git push origin HEAD:main
