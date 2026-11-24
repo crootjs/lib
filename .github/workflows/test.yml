@@ -1,5 +1,6 @@
 # Setiap push dan pull request: jalankan tests/index.html di Chromium, Firefox, dan WebKit headless.
-# Setiap push ke main yang lolos uji: buat tag dan GitHub Release dari CHANGELOG.md
+# Setiap push ke main yang lolos uji: kalau kode modul berubah tanpa entri CHANGELOG baru, versi
+# patch dibuat otomatis (tools/auto-version.py); lalu tag dan GitHub Release dari CHANGELOG.md
 # (tools/release.py) - hanya kalau versi teratasnya belum punya tag/release. Kalau versi baru
 # dibuat: tunggu jsDelivr, naikkan pin di README repo ini, tulis versinya ke version.json (tayang
 # di croot.js.org/lib/version.json, dibaca landing page), lalu kirim repository_dispatch
@@ -46,6 +47,13 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      # Kode modul berubah tanpa entri CHANGELOG baru: versi patch dinaikkan otomatis dari judul
+      # commit. Entri yang ditulis tangan selalu diutamakan (lihat tools/auto-version.py).
+      - name: Versi patch otomatis
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898341+github-actions[bot]@users.noreply.github.com"
+          python3 tools/auto-version.py
       - name: Tag dan GitHub Release dari CHANGELOG.md
         id: release
         env:
