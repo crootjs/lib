@@ -37,6 +37,10 @@ Pages must not look AI-generated. Start from `croot.css` (+ optional `ui.css` co
 - One accent color (`--croot-accent`), used sparingly. Never color as the only signal: add text ("Naik 4%", "Gagal").
 - Full rules with do/don't table: https://croot.js.org/docs/conventions#5-no-ai-look
 
+## Mandatory: a 404.html next to index.html
+
+Every site (the folder with the site's `index.html`, e.g. the repo root on GitHub Pages) must also have a `404.html` in the same folder: separate CSS (croot.css is fine), absolute paths (`/`, `/style.css`) because it is shown for wrong addresses in every subfolder, `<meta name="robots" content="noindex">`, a plain message and links to the likely destinations. Example: https://croot.js.org/examples/pola/kosong-404/404.html
+
 ## Importing CrootJS
 
 - Always import from a pinned version tag: `https://cdn.jsdelivr.net/gh/crootjs/lib@<version>/<module>.js`. Never `@latest` in committed code.
