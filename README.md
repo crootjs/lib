@@ -9,12 +9,12 @@ Library CrootJS
 Import any module straight from jsDelivr's GitHub CDN — no `npm install`, no build step:
 
 ```js
-import { getJSON, postJSON } from "https://cdn.jsdelivr.net/gh/crootjs/lib@0.0.39/api.js";
+import { getJSON, postJSON } from "https://cdn.jsdelivr.net/gh/crootjs/lib@0.0.40/api.js";
 ```
 
 - **Pin an exact version tag** (`@0.0.5`) — check current tags at https://github.com/crootjs/lib/tags. Never use `@latest` in committed code; it can change under you without warning.
-- **Use `.min.js` in production**: `.../lib@0.0.39/api.min.js`. Since 0.0.38 every release tag contains `.min.js` files built by [`tools/build-min.py`](tools/build-min.py) (Terser, with source maps) whose imports point to the `.min.js` of their sibling modules; `main` itself holds only the source. **Don't mix `.js` and `.min.js` of the same version on one page**: `api.js` and `api.min.js` are different module URLs, so a page that imports `api.min.js` and `storage.js` loads two copies of `storage`, each with its own state. Up to 0.0.37 the `.min.js` files came from jsDelivr's own minifier, which kept imports like `"./storage.js"`, so `.min.js` pages still loaded some `.js` siblings.
-- **Styling (optional):** `croot.css` gives plain HTML a finished look with no classes, plus a few layout classes and components, in about 2 KB: `<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/crootjs/lib@0.0.39/croot.min.css">`. See https://croot.js.org/docs/css. Optional icons: `icons.min.css` (49 hand-drawn icons, about 1.9 KB gzipped).
+- **Use `.min.js` in production**: `.../lib@0.0.40/api.min.js`. Since 0.0.38 every release tag contains `.min.js` files built by [`tools/build-min.py`](tools/build-min.py) (Terser, with source maps) whose imports point to the `.min.js` of their sibling modules; `main` itself holds only the source. **Don't mix `.js` and `.min.js` of the same version on one page**: `api.js` and `api.min.js` are different module URLs, so a page that imports `api.min.js` and `storage.js` loads two copies of `storage`, each with its own state. Up to 0.0.37 the `.min.js` files came from jsDelivr's own minifier, which kept imports like `"./storage.js"`, so `.min.js` pages still loaded some `.js` siblings.
+- **Styling (optional):** `croot.css` gives plain HTML a finished look with no classes, plus a few layout classes and components, in about 2 KB: `<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/crootjs/lib@0.0.40/croot.min.css">`. See https://croot.js.org/docs/css. Optional icons: `icons.min.css` (49 hand-drawn icons, about 1.9 KB gzipped).
 - **Import only what you use** — each file is independent (`cookie.js`, `url.js`, `validate.js`, ...); there's no single "import everything" entry point, so your page only loads the code it needs.
 
 Full per-module API reference: https://croot.js.org/docs/
