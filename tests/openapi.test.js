@@ -60,9 +60,12 @@ describe("openapi.js", () => {
         assert.equal(yaml.spec.info.title, "Example Notes API");
         const json = await loadOpenAPI("fixtures/openapi.json");
         assert.equal(json.spec.openapi, "3.1.0");
-        const missing = await loadOpenAPI("fixtures/tidak-ada.yaml");
-        assert.equal(missing.error, "http");
-        assert.ok(missing.message.includes("404"));
+        // 404 tiruan: GitHub Pages kadang menjawab 503 untuk berkas yang tidak ada.
+        await withFetch(() => Promise.resolve(new Response("Not Found", { status: 404 })), async () => {
+            const missing = await loadOpenAPI("tidak-ada.yaml");
+            assert.equal(missing.error, "http");
+            assert.ok(missing.message.includes("404"), missing.message);
+        });
         await withFetch(() => Promise.resolve(new Response("a: 1\n  b: c: d")), async () => {
             const broken = await loadOpenAPI("rusak.yaml");
             assert.equal(broken.error, "parse");
