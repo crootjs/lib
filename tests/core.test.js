@@ -354,6 +354,35 @@ describe("api.js", () => {
             deleteLocal("crootjs_uji_cache");
         }
     });
+    test("pengunjung pertama yang kena 429/403: jeda dicatat walau belum ada data tersimpan", async () => {
+        deleteLocal("crootjs_uji_cache");
+        let calls = 0;
+        const original = window.fetch;
+        window.fetch = () => {
+            calls++;
+            return Promise.resolve(new Response('{"message":"limit"}', { status: 429, headers: { "Retry-After": "90" } }));
+        };
+        try {
+            const url = "https://contoh.test/pertama";
+            const cache = { key: "crootjs_uji_cache", ttl: 60 };
+            const first = await getJSON(url, null, { cache });
+            assert.equal(first.status, 429);
+            assert.deepEqual(first.data, { message: "limit" });
+            const second = await getJSON(url, null, { cache });
+            assert.equal(calls, 1, "selama jeda tidak ada request");
+            assert.equal(second.status, 429);
+            assert.equal(second.data, null);
+            assert.equal(second.cached, true);
+            const wait = Number(second.headers.get("Retry-After"));
+            assert.ok(wait > 80 && wait <= 90, `Retry-After ${wait}`);
+            const other = await getJSON("https://contoh.test/lain", null, { cache });
+            assert.equal(calls, 2, "jeda hanya untuk URL yang ditolak");
+            assert.equal(other.status, 429);
+        } finally {
+            window.fetch = original;
+            deleteLocal("crootjs_uji_cache");
+        }
+    });
     test("cache terikat ke URL; select memangkas data yang disimpan dan dikembalikan", async () => {
         deleteLocal("crootjs_uji_cache");
         const sent = [];

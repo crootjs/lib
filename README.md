@@ -13,7 +13,7 @@ import { getJSON, postJSON } from "https://cdn.jsdelivr.net/gh/crootjs/lib@0.0.3
 ```
 
 - **Pin an exact version tag** (`@0.0.5`) — check current tags at https://github.com/crootjs/lib/tags. Never use `@latest` in committed code; it can change under you without warning.
-- **Use `.min.js` in production** — jsDelivr auto-minifies any file on request via Terser, even though no `.min.js` is committed to this repo: `.../lib@0.0.37/api.min.js`. Use the unminified `.js` only when actively reading/debugging.
+- **Use `.min.js` in production**: `.../lib@0.0.37/api.min.js`. Since 0.0.38 every release tag contains `.min.js` files built by [`tools/build-min.py`](tools/build-min.py) (Terser, with source maps) whose imports point to the `.min.js` of their sibling modules; `main` itself holds only the source. **Don't mix `.js` and `.min.js` of the same version on one page**: `api.js` and `api.min.js` are different module URLs, so a page that imports `api.min.js` and `storage.js` loads two copies of `storage`, each with its own state. Up to 0.0.37 the `.min.js` files came from jsDelivr's own minifier, which kept imports like `"./storage.js"`, so `.min.js` pages still loaded some `.js` siblings.
 - **Styling (optional):** `croot.css` gives plain HTML a finished look with no classes, plus a few layout classes and components, in about 2 KB: `<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/crootjs/lib@0.0.37/croot.min.css">`. See https://croot.js.org/docs/css. Optional icons: `icons.min.css` (49 hand-drawn icons, about 1.9 KB gzipped).
 - **Import only what you use** — each file is independent (`cookie.js`, `url.js`, `validate.js`, ...); there's no single "import everything" entry point, so your page only loads the code it needs.
 
@@ -39,13 +39,13 @@ Changes per version: [CHANGELOG.md](CHANGELOG.md).
 
 ## Editor autocomplete
 
-Copy [`crootjs.d.ts`](crootjs.d.ts) into your project (next to a `jsconfig.json`). VS Code then knows every module imported straight from jsDelivr — any version, `.js` or `.min.js` — and shows parameter names, order, and the docs comment of each function. It is generated from the source: `python3 tools/build-types.py`.
+Copy [`crootjs.d.ts`](crootjs.d.ts) into your project (next to a `jsconfig.json`). VS Code then knows every module imported straight from jsDelivr — any version, `.js` or `.min.js` — and shows parameter names, order, and the docs comment of each function. Since 0.0.38 the `api.js` options object is typed too (`getJSON(url, null, { cache: { key, ttl, staleIfError, select } })` autocompletes), and `getJSON<T>()` types `data`. It is generated from the source: `python3 tools/build-types.py`.
 
 ## Releasing
 
 1. Add a section at the top of [CHANGELOG.md](CHANGELOG.md): `## [x.y.z](https://github.com/crootjs/lib/releases/tag/vx.y.z) - YYYY-MM-DD`, a bold title line, then the notes.
 2. Regenerate the type declarations: `python3 tools/build-types.py`.
-3. Push to `main`. The workflow runs the tests; if they pass and the newest CHANGELOG version has no tag yet, it creates the tag `vx.y.z` and the GitHub Release from that section ([`tools/release.py`](tools/release.py)). Pushes that don't add a version (docs, pin bumps) create nothing.
+3. Push to `main`. The workflow runs the tests; if they pass and the newest CHANGELOG version has no tag yet, it builds the `.min.js` files ([`tools/build-min.py`](tools/build-min.py)) into a commit used only by the tag, creates the tag `vx.y.z` on it, and creates the GitHub Release from that section ([`tools/release.py`](tools/release.py)). Pushes that don't add a version (docs, pin bumps) create nothing.
 4. After a new release the workflow waits until jsDelivr serves `lib@x.y.z` (including `.min.js`), bumps the pins in this README, writes the version to [`version.json`](version.json) (served at https://croot.js.org/lib/version.json and shown on the landing page), and sends a `lib-released` repository dispatch to [docs](https://github.com/crootjs/docs), [examples](https://github.com/crootjs/examples) and [crootjs.github.io](https://github.com/crootjs/crootjs.github.io). Each of them bumps its own pins ([`tools/bump-pins.sh`](tools/bump-pins.sh)) and rebuilds GitHub Pages; the landing page then waits for docs and examples to go live, rebuilds `sitemap.xml` and `llms-full.txt`, runs the tests at https://croot.js.org/lib/tests/, and sends a Telegram notification.
 
 Docs and example pages for a new feature can be pushed together with the lib change: their pins are raised automatically once the version is on jsDelivr.

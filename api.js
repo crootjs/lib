@@ -102,16 +102,23 @@ function requestJSON(method, target_url, responseFunction, datajson, options) {
     // balasan 304 akan terus memperpanjang bentuk lama itu selama ETag server tidak berubah.
     const shape = cache && cache.select ? hashText(String(cache.select)) : null;
     const entry = cache ? getLocal(cache.key) : null;
-    const stored = entry && entry.url === target_url && (entry.shape ?? null) === shape ? entry : null;
+    const matched = entry && entry.url === target_url && (entry.shape ?? null) === shape ? entry : null;
+    // Entri tanpa data hanya mencatat jeda dari server (lihat retryAt di bawah).
+    const stored = matched && "data" in matched ? matched : null;
     if (stored && Date.now() < stored.expiresAt) {
         // Lewat then(), supaya callback selalu jalan sesudah baris setelah getJSON, sama seperti
         // saat data datang dari jaringan.
         return Promise.resolve().then(() => respond({ status: stored.status, data: stored.data, headers: new Headers(), error: null, cached: true }));
     }
     // Server sebelumnya meminta jeda (403/429 dengan Retry-After atau X-RateLimit-Reset): sampai
-    // waktunya, data lama dipakai tanpa request, karena request baru hanya akan ditolak lagi.
-    if (stored && cache.staleIfError && stored.retryAt && Date.now() < stored.retryAt) {
-        return Promise.resolve().then(() => respond({ status: stored.status, data: stored.data, headers: new Headers(), error: null, cached: true, stale: true, staleReason: stored.retryStatus }));
+    // waktunya tidak ada request, karena pasti ditolak lagi dan, di IP bersama (jaringan seluler),
+    // ikut menghabiskan kuota orang lain. Dengan staleIfError dan data tersimpan, data itu yang
+    // dipakai; selain itu hasilnya status penolakan tadi dengan Retry-After sisa jedanya.
+    if (matched && matched.retryAt && Date.now() < matched.retryAt) {
+        const result = stored && cache.staleIfError
+            ? { status: stored.status, data: stored.data, headers: new Headers(), error: null, cached: true, stale: true, staleReason: matched.retryStatus }
+            : { status: matched.retryStatus, data: null, headers: new Headers({ "Retry-After": String(Math.ceil((matched.retryAt - Date.now()) / 1000)) }), error: null, cached: true };
+        return Promise.resolve().then(() => respond(result));
     }
     if (stored && stored.etag && !headers.has("If-None-Match")) headers.set("If-None-Match", stored.etag);
 
@@ -166,9 +173,10 @@ function requestJSON(method, target_url, responseFunction, datajson, options) {
                 });
             }
             if (!response.ok && !result.cached) {
-                const retryAt = cache && cache.staleIfError && stored && (response.status === 403 || response.status === 429)
-                    ? retryTime(response.headers) : null;
-                if (retryAt) setLocal(cache.key, { ...stored, retryAt, retryStatus: response.status });
+                const retryAt = cache && (response.status === 403 || response.status === 429) ? retryTime(response.headers) : null;
+                // Tanpa data tersimpan pun jeda dicatat, supaya pengunjung pertama yang kena limit
+                // tidak mengirim request yang pasti ditolak di setiap muat ulang.
+                if (retryAt) setLocal(cache.key, { ...(stored || { url: target_url, shape }), retryAt, retryStatus: response.status });
                 return staleOr(result);
             }
             return result;
@@ -204,7 +212,8 @@ function requestJSON(method, target_url, responseFunction, datajson, options) {
 // headers = Headers dari server (kosong kalau gagal atau dari cache); error = null, atau
 // "timeout" / "abort" / "offline" / "network" saat status 0; cached = true kalau data dari cache;
 // stale = true hanya kalau data tersimpan dipakai karena request gagal, dengan staleReason = status
-// HTTP kegagalannya atau jenis kegagalan jaringan. error "select" (dengan status asli server dan
+// HTTP kegagalannya atau jenis kegagalan jaringan. Setelah 403/429 dengan Retry-After atau
+// X-RateLimit-Reset, request dengan cache dijeda sampai waktu itu (paling lama 1 jam). error "select" (dengan status asli server dan
 // data null) kalau cache.select melempar error.
 export function getJSON(target_url, responseFunction, tokenkey = null, tokenvalue = null) {
     return requestJSON('GET', target_url, responseFunction, undefined, readOptions(tokenkey, tokenvalue));

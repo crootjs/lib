@@ -3,6 +3,58 @@
 // lalu VS Code memberi autocomplete untuk:
 //   import { createMap } from "https://cdn.jsdelivr.net/gh/crootjs/lib@<versi>/map.min.js";
 
+declare namespace CrootJS {
+    type Failure = "timeout" | "abort" | "offline" | "network";
+    /** Hasil api.js. error: null, atau jenis kegagalan saat status 0 (lihat docs api.js). */
+    interface Result<T = any, E = never> {
+        status: number;
+        data: T;
+        headers: Headers;
+        error: null | Failure | E;
+        /** getJSON dengan cache: true kalau data dari cache. */
+        cached?: boolean;
+        /** getJSON dengan cache.staleIfError: true kalau request gagal dan data tersimpan dipakai. */
+        stale?: boolean;
+        /** Kalau stale: status HTTP kegagalannya, atau jenis kegagalan jaringan. */
+        staleReason?: number | "timeout" | "offline" | "network";
+    }
+    type Callback<R> = ((result: R) => void) | null;
+    interface RequestOptions {
+        /** Header tambahan, mis. { Authorization: "Bearer " + token }. */
+        headers?: Record<string, string> | Headers;
+        /** Milidetik sebelum request dibatalkan. Bawaan 15000. */
+        timeout?: number;
+        /** controller.abort() membatalkan request (error "abort"). */
+        signal?: AbortSignal;
+    }
+    interface CacheOptions<T = any> {
+        /** Nama entri di localStorage. */
+        key: string;
+        /** Detik tanpa request sama sekali. */
+        ttl?: number;
+        /** Request sesudah ttl gagal: pakai data tersimpan (stale: true). */
+        staleIfError?: boolean;
+        /** Memangkas balasan 2xx sebelum disimpan dan dikembalikan. */
+        select?: (data: any) => T;
+    }
+    interface GetOptions<T = any> extends RequestOptions {
+        cache?: CacheOptions<T>;
+    }
+    interface UploadOptions extends RequestOptions {
+        /** Nama field file. Bawaan "file". */
+        field?: string;
+        /** Field tambahan di form. */
+        data?: Record<string, string | Blob>;
+        /** Bawaan "POST". */
+        method?: string;
+        onProgress?: (fraction: number, loaded: number, total: number) => void;
+    }
+    interface DownloadOptions extends RequestOptions {
+        /** Kalau diisi, file 2xx langsung disimpan browser dengan nama ini. */
+        fileName?: string;
+    }
+}
+
 declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/api.js" {
     /**
      * Keempatnya mengembalikan Promise berisi { status, data, headers, error, cached }, selain
@@ -26,10 +78,36 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/api.js" {
      * HTTP kegagalannya atau jenis kegagalan jaringan. error "select" (dengan status asli server dan
      * data null) kalau cache.select melempar error.
      */
-    export function getJSON(target_url: string, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile" | "select"; cached?: boolean; stale?: boolean; staleReason?: number | "timeout" | "offline" | "network" }>;
-    export function postJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile" | "select"; cached?: boolean; stale?: boolean; staleReason?: number | "timeout" | "offline" | "network" }>;
-    export function deleteJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile" | "select"; cached?: boolean; stale?: boolean; staleReason?: number | "timeout" | "offline" | "network" }>;
-    export function putJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile" | "select"; cached?: boolean; stale?: boolean; staleReason?: number | "timeout" | "offline" | "network" }>;
+    export function getJSON<T = any>(target_url: string, responseFunction: CrootJS.Callback<CrootJS.Result<T, "select">> | undefined, options: CrootJS.GetOptions<T>): Promise<CrootJS.Result<T, "select">>;
+    /**
+     * Keempatnya mengembalikan Promise berisi { status, data, headers, error, cached }, selain
+     * memanggil responseFunction. responseFunction boleh null untuk gaya await:
+     * const { status, data } = await getJSON(url);
+     * const result = await postJSON(url, body, null, "login", token);
+     * Sesudah responseFunction boleh (tokenkey, tokenvalue) atau satu object opsi:
+     * headers  object header tambahan, misalnya { Authorization: "Bearer ..." }
+     * timeout  milidetik sebelum request dibatalkan. Bawaan 15000.
+     * signal   AbortSignal dari AbortController: controller.abort() membatalkan request
+     * (error "abort", tanpa peringatan di console).
+     * cache    { key, ttl, staleIfError, select }: simpan hasil GET yang berhasil di localStorage
+     * selama ttl detik (hanya getJSON), lalu tanyakan ulang dengan If-None-Match; 304 memberi
+     * data tersimpan dengan status aslinya (200) dan cached = true. Entri terikat ke URL-nya.
+     * staleIfError: true = kalau request sesudah TTL gagal, pakai data tersimpan
+     * (cached = true, stale = true). select: data => bagianYangDipakai, dijalankan pada
+     * balasan 2xx sebelum disimpan dan dikembalikan.
+     * headers = Headers dari server (kosong kalau gagal atau dari cache); error = null, atau
+     * "timeout" / "abort" / "offline" / "network" saat status 0; cached = true kalau data dari cache;
+     * stale = true hanya kalau data tersimpan dipakai karena request gagal, dengan staleReason = status
+     * HTTP kegagalannya atau jenis kegagalan jaringan. error "select" (dengan status asli server dan
+     * data null) kalau cache.select melempar error.
+     */
+    export function getJSON<T = any>(target_url: string, responseFunction?: CrootJS.Callback<CrootJS.Result<T>>, tokenkey?: string, tokenvalue?: string): Promise<CrootJS.Result<T>>;
+    export function postJSON<T = any>(target_url: string, datajson: any, responseFunction: CrootJS.Callback<CrootJS.Result<T>> | undefined, options: CrootJS.RequestOptions): Promise<CrootJS.Result<T>>;
+    export function postJSON<T = any>(target_url: string, datajson: any, responseFunction?: CrootJS.Callback<CrootJS.Result<T>>, tokenkey?: string, tokenvalue?: string): Promise<CrootJS.Result<T>>;
+    export function deleteJSON<T = any>(target_url: string, datajson: any, responseFunction: CrootJS.Callback<CrootJS.Result<T>> | undefined, options: CrootJS.RequestOptions): Promise<CrootJS.Result<T>>;
+    export function deleteJSON<T = any>(target_url: string, datajson: any, responseFunction?: CrootJS.Callback<CrootJS.Result<T>>, tokenkey?: string, tokenvalue?: string): Promise<CrootJS.Result<T>>;
+    export function putJSON<T = any>(target_url: string, datajson: any, responseFunction: CrootJS.Callback<CrootJS.Result<T>> | undefined, options: CrootJS.RequestOptions): Promise<CrootJS.Result<T>>;
+    export function putJSON<T = any>(target_url: string, datajson: any, responseFunction?: CrootJS.Callback<CrootJS.Result<T>>, tokenkey?: string, tokenvalue?: string): Promise<CrootJS.Result<T>>;
     /**
      * Mengunggah file dengan multipart/form-data dan melaporkan kemajuannya. Hasilnya sama bentuknya
      * dengan getJSON: { status, data, headers, error } ke responseFunction (boleh null) dan Promise
@@ -48,7 +126,7 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/api.js" {
      * error "nofile" kalau tidak ada file yang dipilih (tanpa request).
      * Memakai XMLHttpRequest, karena fetch() belum bisa melaporkan kemajuan unggahan.
      */
-    export function uploadFile(target_url: string, source: any, responseFunction?: (...args: any[]) => any, options?: Record<string, any>): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile" | "select"; cached?: boolean; stale?: boolean; staleReason?: number | "timeout" | "offline" | "network" }>;
+    export function uploadFile<T = any>(target_url: string, source: string | Blob | FileList | File[] | FormData, responseFunction?: CrootJS.Callback<CrootJS.Result<T, "nofile">>, options?: CrootJS.UploadOptions): Promise<CrootJS.Result<T, "nofile">>;
     /**
      * Mengunduh file. Hasil { status, data, headers, error } ke responseFunction (boleh null) dan
      * Promise yang tidak pernah reject: data = Blob kalau status 2xx, selain itu body error server
@@ -56,7 +134,7 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/api.js" {
      * options (semua opsional): headers, timeout (bawaan 15000), signal - sama dengan getJSON - dan
      * fileName  kalau diisi, file 2xx langsung disimpan browser dengan nama ini.
      */
-    export function downloadFile(target_url: string, responseFunction?: (...args: any[]) => any, options?: Record<string, any>): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile" | "select"; cached?: boolean; stale?: boolean; staleReason?: number | "timeout" | "offline" | "network" }>;
+    export function downloadFile(target_url: string, responseFunction?: CrootJS.Callback<CrootJS.Result<Blob | any>>, options?: CrootJS.DownloadOptions): Promise<CrootJS.Result<Blob | any>>;
     /**
      * errorFunction (opsional) dipanggil dengan sebuah Error kalau elemen tidak ada,
      * server membalas status non-2xx, jaringan gagal, atau request timeout.
@@ -108,10 +186,36 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/api.min.js" {
      * HTTP kegagalannya atau jenis kegagalan jaringan. error "select" (dengan status asli server dan
      * data null) kalau cache.select melempar error.
      */
-    export function getJSON(target_url: string, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile" | "select"; cached?: boolean; stale?: boolean; staleReason?: number | "timeout" | "offline" | "network" }>;
-    export function postJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile" | "select"; cached?: boolean; stale?: boolean; staleReason?: number | "timeout" | "offline" | "network" }>;
-    export function deleteJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile" | "select"; cached?: boolean; stale?: boolean; staleReason?: number | "timeout" | "offline" | "network" }>;
-    export function putJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile" | "select"; cached?: boolean; stale?: boolean; staleReason?: number | "timeout" | "offline" | "network" }>;
+    export function getJSON<T = any>(target_url: string, responseFunction: CrootJS.Callback<CrootJS.Result<T, "select">> | undefined, options: CrootJS.GetOptions<T>): Promise<CrootJS.Result<T, "select">>;
+    /**
+     * Keempatnya mengembalikan Promise berisi { status, data, headers, error, cached }, selain
+     * memanggil responseFunction. responseFunction boleh null untuk gaya await:
+     * const { status, data } = await getJSON(url);
+     * const result = await postJSON(url, body, null, "login", token);
+     * Sesudah responseFunction boleh (tokenkey, tokenvalue) atau satu object opsi:
+     * headers  object header tambahan, misalnya { Authorization: "Bearer ..." }
+     * timeout  milidetik sebelum request dibatalkan. Bawaan 15000.
+     * signal   AbortSignal dari AbortController: controller.abort() membatalkan request
+     * (error "abort", tanpa peringatan di console).
+     * cache    { key, ttl, staleIfError, select }: simpan hasil GET yang berhasil di localStorage
+     * selama ttl detik (hanya getJSON), lalu tanyakan ulang dengan If-None-Match; 304 memberi
+     * data tersimpan dengan status aslinya (200) dan cached = true. Entri terikat ke URL-nya.
+     * staleIfError: true = kalau request sesudah TTL gagal, pakai data tersimpan
+     * (cached = true, stale = true). select: data => bagianYangDipakai, dijalankan pada
+     * balasan 2xx sebelum disimpan dan dikembalikan.
+     * headers = Headers dari server (kosong kalau gagal atau dari cache); error = null, atau
+     * "timeout" / "abort" / "offline" / "network" saat status 0; cached = true kalau data dari cache;
+     * stale = true hanya kalau data tersimpan dipakai karena request gagal, dengan staleReason = status
+     * HTTP kegagalannya atau jenis kegagalan jaringan. error "select" (dengan status asli server dan
+     * data null) kalau cache.select melempar error.
+     */
+    export function getJSON<T = any>(target_url: string, responseFunction?: CrootJS.Callback<CrootJS.Result<T>>, tokenkey?: string, tokenvalue?: string): Promise<CrootJS.Result<T>>;
+    export function postJSON<T = any>(target_url: string, datajson: any, responseFunction: CrootJS.Callback<CrootJS.Result<T>> | undefined, options: CrootJS.RequestOptions): Promise<CrootJS.Result<T>>;
+    export function postJSON<T = any>(target_url: string, datajson: any, responseFunction?: CrootJS.Callback<CrootJS.Result<T>>, tokenkey?: string, tokenvalue?: string): Promise<CrootJS.Result<T>>;
+    export function deleteJSON<T = any>(target_url: string, datajson: any, responseFunction: CrootJS.Callback<CrootJS.Result<T>> | undefined, options: CrootJS.RequestOptions): Promise<CrootJS.Result<T>>;
+    export function deleteJSON<T = any>(target_url: string, datajson: any, responseFunction?: CrootJS.Callback<CrootJS.Result<T>>, tokenkey?: string, tokenvalue?: string): Promise<CrootJS.Result<T>>;
+    export function putJSON<T = any>(target_url: string, datajson: any, responseFunction: CrootJS.Callback<CrootJS.Result<T>> | undefined, options: CrootJS.RequestOptions): Promise<CrootJS.Result<T>>;
+    export function putJSON<T = any>(target_url: string, datajson: any, responseFunction?: CrootJS.Callback<CrootJS.Result<T>>, tokenkey?: string, tokenvalue?: string): Promise<CrootJS.Result<T>>;
     /**
      * Mengunggah file dengan multipart/form-data dan melaporkan kemajuannya. Hasilnya sama bentuknya
      * dengan getJSON: { status, data, headers, error } ke responseFunction (boleh null) dan Promise
@@ -130,7 +234,7 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/api.min.js" {
      * error "nofile" kalau tidak ada file yang dipilih (tanpa request).
      * Memakai XMLHttpRequest, karena fetch() belum bisa melaporkan kemajuan unggahan.
      */
-    export function uploadFile(target_url: string, source: any, responseFunction?: (...args: any[]) => any, options?: Record<string, any>): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile" | "select"; cached?: boolean; stale?: boolean; staleReason?: number | "timeout" | "offline" | "network" }>;
+    export function uploadFile<T = any>(target_url: string, source: string | Blob | FileList | File[] | FormData, responseFunction?: CrootJS.Callback<CrootJS.Result<T, "nofile">>, options?: CrootJS.UploadOptions): Promise<CrootJS.Result<T, "nofile">>;
     /**
      * Mengunduh file. Hasil { status, data, headers, error } ke responseFunction (boleh null) dan
      * Promise yang tidak pernah reject: data = Blob kalau status 2xx, selain itu body error server
@@ -138,7 +242,7 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/api.min.js" {
      * options (semua opsional): headers, timeout (bawaan 15000), signal - sama dengan getJSON - dan
      * fileName  kalau diisi, file 2xx langsung disimpan browser dengan nama ini.
      */
-    export function downloadFile(target_url: string, responseFunction?: (...args: any[]) => any, options?: Record<string, any>): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile" | "select"; cached?: boolean; stale?: boolean; staleReason?: number | "timeout" | "offline" | "network" }>;
+    export function downloadFile(target_url: string, responseFunction?: CrootJS.Callback<CrootJS.Result<Blob | any>>, options?: CrootJS.DownloadOptions): Promise<CrootJS.Result<Blob | any>>;
     /**
      * errorFunction (opsional) dipanggil dengan sebuah Error kalau elemen tidak ada,
      * server membalas status non-2xx, jaringan gagal, atau request timeout.

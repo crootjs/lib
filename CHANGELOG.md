@@ -2,6 +2,15 @@
 
 All notable changes to CrootJS. Versions are git tags, served by jsDelivr as `https://cdn.jsdelivr.net/gh/crootjs/lib@<version>/<module>.js`; each is also a [GitHub release](https://github.com/crootjs/lib/releases).
 
+## [0.0.38](https://github.com/crootjs/lib/releases/tag/v0.0.38) - 2026-11-24
+
+**.min.js files that import .min.js, typed api.js options, rate-limit pause for first visitors**
+
+- **Release** - every release tag now contains its own `.min.js` files (and source maps), built with Terser by `tools/build-min.py`, whose relative imports point to the `.min.js` of their sibling modules. Up to 0.0.37 jsDelivr minified on request but kept the import paths, so `api.min.js` imported `"./storage.js"`: a page using `api.min.js` and `storage.min.js` loaded two copies of `storage` (each with its own state), and `mapmodel.min.js` loaded `model3d.js` next to a page's `model3d.min.js`, so a viewer created through one copy was unknown to the other. 13 modules have relative imports. The `.min.js` files live only in the tag's commit; `main` holds the source. Don't mix `.js` and `.min.js` on one page.
+- **crootjs.d.ts** - `getJSON`, `postJSON`, `putJSON`, `deleteJSON`, `uploadFile` and `downloadFile` have typed options (`CrootJS.GetOptions`, `CrootJS.CacheOptions`, `CrootJS.RequestOptions`, `CrootJS.UploadOptions`, `CrootJS.DownloadOptions`), overloads for the options-object and token forms, and a type parameter for `data` (`getJSON<T>()`; with `cache.select` it is inferred). `"nofile"` is only in `uploadFile`'s error type and `"select"` only in `getJSON`'s.
+- **api.js** - the rate-limit pause from 0.0.37 also applies without stored data: a first visitor who gets a `403`/`429` with `Retry-After` (or `X-RateLimit-Reset` when the quota is `0`) sends no more requests to that URL until then; the result is that status with `data: null`, `cached: true` and a `Retry-After` header with the seconds left. With stored data and `staleIfError` the stored data is returned as before; without `staleIfError` the pause now applies too.
+- **tests/** - 198 tests; the whole suite also passes against the built `.min.js` files.
+
 ## [0.0.37](https://github.com/crootjs/lib/releases/tag/v0.0.37) - 2026-11-24
 
 **getJSON cache fixes: callbacks always asynchronous, select errors, rate-limit pause**

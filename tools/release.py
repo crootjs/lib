@@ -1,7 +1,9 @@
 """Membuat tag dan GitHub Release dari CHANGELOG.md. Dijalankan workflow setiap push ke main,
 setelah uji lolos (.github/workflows/test.yml):
 
-- Versi teratas di CHANGELOG.md yang tag-nya belum ada -> tag dibuat di commit ini.
+- Versi teratas di CHANGELOG.md yang tag-nya belum ada -> tag dibuat di commit anak dari commit
+  ini yang juga berisi <modul>.min.js buatan tools/build-min.py (import-nya ke ./<modul>.min.js).
+  Commit itu tidak masuk main; jsDelivr menyajikan .min.js dari tag apa adanya.
 - Setiap versi di CHANGELOG.md yang tag-nya ada tapi belum punya GitHub Release -> release
   dibuat dengan judul dan isi bagian versi itu. Yang terbaru ditandai "Latest".
 
@@ -11,6 +13,7 @@ Butuh git dan gh (sudah ada di runner GitHub). DRY_RUN=1 hanya mencetak rencanan
 
     python3 tools/release.py
 """
+import glob
 import os
 import re
 import subprocess
@@ -46,6 +49,20 @@ def sections():
     return found  # terbaru dulu
 
 
+def tag_with_min(tag):
+    branch = run("git", "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    act(sys.executable, os.path.join("tools", "build-min.py"))
+    act("git", "checkout", "--detach")
+    # -f karena .gitignore menolak *.min.js: berkas ini hanya untuk commit tag.
+    built = sorted(os.path.basename(path) for pattern in ("*.min.js", "*.min.js.map") for path in glob.glob(os.path.join(LIB, pattern)))
+    act("git", "add", "-f", *built)
+    act("git", "commit", "-m", f"{tag}: berkas .min.js dengan import ke .min.js")
+    act("git", "tag", tag)
+    act("git", "push", "origin", tag)
+    # Kembali ke main, supaya langkah workflow berikutnya (naikkan pin, push) bekerja di main.
+    act("git", "checkout", branch)
+
+
 def main():
     entries = sections()
     if not entries:
@@ -60,8 +77,7 @@ def main():
     newest = entries[0]
     newest_tag = "v" + newest["version"]
     if newest_tag not in tags:
-        act("git", "tag", newest_tag)
-        act("git", "push", "origin", newest_tag)
+        tag_with_min(newest_tag)
         tags.add(newest_tag)
         # Langkah workflow berikutnya (pin, repo lain) hanya jalan kalau versi baru dibuat di sini.
         output = os.environ.get("GITHUB_OUTPUT")

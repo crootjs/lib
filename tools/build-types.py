@@ -13,15 +13,81 @@ CDN = "https://cdn.jsdelivr.net/gh/crootjs/lib@*/"
 SKIP = {"mongo.js", "serviceworker.js"}  # untuk server / skrip klasik service worker, bukan modul halaman
 
 FUNCTION = "(...args: any[]) => any"
+# Tipe bersama untuk api.js, dipakai deklarasi di OVERRIDES lewat CrootJS.<nama>.
+SHARED = """declare namespace CrootJS {
+    type Failure = "timeout" | "abort" | "offline" | "network";
+    /** Hasil api.js. error: null, atau jenis kegagalan saat status 0 (lihat docs api.js). */
+    interface Result<T = any, E = never> {
+        status: number;
+        data: T;
+        headers: Headers;
+        error: null | Failure | E;
+        /** getJSON dengan cache: true kalau data dari cache. */
+        cached?: boolean;
+        /** getJSON dengan cache.staleIfError: true kalau request gagal dan data tersimpan dipakai. */
+        stale?: boolean;
+        /** Kalau stale: status HTTP kegagalannya, atau jenis kegagalan jaringan. */
+        staleReason?: number | "timeout" | "offline" | "network";
+    }
+    type Callback<R> = ((result: R) => void) | null;
+    interface RequestOptions {
+        /** Header tambahan, mis. { Authorization: "Bearer " + token }. */
+        headers?: Record<string, string> | Headers;
+        /** Milidetik sebelum request dibatalkan. Bawaan 15000. */
+        timeout?: number;
+        /** controller.abort() membatalkan request (error "abort"). */
+        signal?: AbortSignal;
+    }
+    interface CacheOptions<T = any> {
+        /** Nama entri di localStorage. */
+        key: string;
+        /** Detik tanpa request sama sekali. */
+        ttl?: number;
+        /** Request sesudah ttl gagal: pakai data tersimpan (stale: true). */
+        staleIfError?: boolean;
+        /** Memangkas balasan 2xx sebelum disimpan dan dikembalikan. */
+        select?: (data: any) => T;
+    }
+    interface GetOptions<T = any> extends RequestOptions {
+        cache?: CacheOptions<T>;
+    }
+    interface UploadOptions extends RequestOptions {
+        /** Nama field file. Bawaan "file". */
+        field?: string;
+        /** Field tambahan di form. */
+        data?: Record<string, string | Blob>;
+        /** Bawaan "POST". */
+        method?: string;
+        onProgress?: (fraction: number, loaded: number, total: number) => void;
+    }
+    interface DownloadOptions extends RequestOptions {
+        /** Kalau diisi, file 2xx langsung disimpan browser dengan nama ini. */
+        fileName?: string;
+    }
+}
+"""
+
+# Fungsi yang deklarasinya ditulis tangan (overload, generik), menggantikan hasil otomatis.
+# Komentar di atas fungsinya tetap menjadi JSDoc.
+OVERRIDES = {
+    ("api.js", "getJSON"): [
+        "getJSON<T = any>(target_url: string, responseFunction: CrootJS.Callback<CrootJS.Result<T, \"select\">> | undefined, options: CrootJS.GetOptions<T>): Promise<CrootJS.Result<T, \"select\">>",
+        "getJSON<T = any>(target_url: string, responseFunction?: CrootJS.Callback<CrootJS.Result<T>>, tokenkey?: string, tokenvalue?: string): Promise<CrootJS.Result<T>>",
+    ],
+    **{("api.js", name): [
+        f"{name}<T = any>(target_url: string, datajson: any, responseFunction: CrootJS.Callback<CrootJS.Result<T>> | undefined, options: CrootJS.RequestOptions): Promise<CrootJS.Result<T>>",
+        f"{name}<T = any>(target_url: string, datajson: any, responseFunction?: CrootJS.Callback<CrootJS.Result<T>>, tokenkey?: string, tokenvalue?: string): Promise<CrootJS.Result<T>>",
+    ] for name in ("postJSON", "putJSON", "deleteJSON")},
+    ("api.js", "uploadFile"): [
+        "uploadFile<T = any>(target_url: string, source: string | Blob | FileList | File[] | FormData, responseFunction?: CrootJS.Callback<CrootJS.Result<T, \"nofile\">>, options?: CrootJS.UploadOptions): Promise<CrootJS.Result<T, \"nofile\">>",
+    ],
+    ("api.js", "downloadFile"): [
+        "downloadFile(target_url: string, responseFunction?: CrootJS.Callback<CrootJS.Result<Blob | any>>, options?: CrootJS.DownloadOptions): Promise<CrootJS.Result<Blob | any>>",
+    ],
+}
+
 # Tipe hasil yang diketahui; selain ini `any`.
-RESULT = "{ status: number; data: any; headers: Headers; error: null | \"timeout\" | \"abort\" | \"offline\" | \"network\" | \"nofile\" | \"select\"; cached?: boolean; stale?: boolean; staleReason?: number | \"timeout\" | \"offline\" | \"network\" }"
 RETURNS = {
-    ("api.js", "getJSON"): f"Promise<{RESULT}>",
-    ("api.js", "postJSON"): f"Promise<{RESULT}>",
-    ("api.js", "putJSON"): f"Promise<{RESULT}>",
-    ("api.js", "deleteJSON"): f"Promise<{RESULT}>",
-    ("api.js", "uploadFile"): f"Promise<{RESULT}>",
-    ("api.js", "downloadFile"): f"Promise<{RESULT}>",
     ("element.js", "serializeForm"): "Record<string, string | boolean | string[]>",
     ("form.js", "validateForm"): "boolean",
     ("form.js", "handleForm"): "{ validate(): boolean; clear(): void; remove(): void }",
@@ -137,6 +203,9 @@ def declarations(module, seen=None):
         doc = ""
         if comment:
             doc = "    /**\n" + "".join(f"     * {text}\n" for text in comment) + "     */\n"
+        if (module, name) in OVERRIDES:
+            result.append("\n".join(f"{doc}    export function {signature};" for signature in OVERRIDES[(module, name)]))
+            continue
         result.append(f"{doc}    export function {name}({', '.join(params)}): {returns};")
     for match in re.finditer(r"^export (?:const|let) (\w+)", source, re.M):
         result.append(f"    export const {match.group(1)}: any;")
@@ -147,13 +216,15 @@ def declarations(module, seen=None):
 
 
 def main():
-    modules = sorted(name for name in os.listdir(LIB) if name.endswith(".js") and name not in SKIP)
+    # .min.js lokal (dari tools/build-min.py) bukan modul tersendiri.
+    modules = sorted(name for name in os.listdir(LIB) if name.endswith(".js") and not name.endswith(".min.js") and name not in SKIP)
     out = [
         "// Deklarasi tipe CrootJS untuk import dari jsDelivr. Dibangkitkan oleh tools/build-types.py dari",
         "// kode sumber - jangan diubah manual. Salin ke folder proyek (di samping jsconfig.json),",
         "// lalu VS Code memberi autocomplete untuk:",
         f'//   import {{ createMap }} from "{CDN.replace("*", "<versi>")}map.min.js";',
         "",
+        SHARED,
     ]
     for module in modules:
         body = "\n".join(declarations(module))

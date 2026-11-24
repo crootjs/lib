@@ -7,3 +7,7 @@ node_modules
 # Generated files
 .psci
 output
+
+# Dibuat tools/build-min.py hanya untuk commit tag rilis, bukan untuk main
+*.min.js
+*.min.js.map
