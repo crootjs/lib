@@ -28,6 +28,8 @@ SHARED = """declare namespace CrootJS {
         stale?: boolean;
         /** Kalau stale: status HTTP kegagalannya, atau jenis kegagalan jaringan. */
         staleReason?: number | "timeout" | "offline" | "network";
+        /** getJSON dengan cache: true kalau request tidak dikirim karena server meminta jeda (403/429) dan tidak ada data tersimpan. */
+        paused?: boolean;
     }
     type Callback<R> = ((result: R) => void) | null;
     interface RequestOptions {

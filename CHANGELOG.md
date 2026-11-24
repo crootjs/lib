@@ -2,6 +2,15 @@
 
 All notable changes to CrootJS. Versions are git tags, served by jsDelivr as `https://cdn.jsdelivr.net/gh/crootjs/lib@<version>/<module>.js`; each is also a [GitHub release](https://github.com/crootjs/lib/releases).
 
+## [0.0.40](https://github.com/crootjs/lib/releases/tag/v0.0.40) - 2026-11-24
+
+**Release commits on the dist branch, modulepreload lists, paused results**
+
+- **Release** - release commits (source plus the built `.min.js` files) are now on the `dist` branch instead of belonging to no branch; the first one also takes in the 0.0.38 and 0.0.39 release commits. `main` stays source only. Pin to a tag (`@0.0.40`) or a `dist` commit, not to a commit SHA from `main`: for those jsDelivr minifies on its own and `api.min.js` imports `"./storage.js"` again.
+- **api.js (Changed)** - while the rate-limit pause is active and nothing is stored (or `staleIfError` is off), the result has `paused: true` and `cached: false`. In 0.0.38 and 0.0.39 it said `cached: true`, although no data came from the cache.
+- **tools/module-deps.py (new)** - lists the modules that import others, with all their dependencies and ready-made `<link rel="modulepreload">` lines; the docs now show the list. Without preloading, every level of imports adds one round trip (about 150 ms on mobile networks); on the landing page preloading moves the first API request about 300 ms earlier.
+- **crootjs.d.ts** - results have `paused?: boolean`.
+
 ## [0.0.39](https://github.com/crootjs/lib/releases/tag/v0.0.39) - 2026-11-24
 
 **api.js: rewrap the getJSON comment; regenerate crootjs.d.ts (0.0.38 shipped a stale comment)**
@@ -16,7 +25,7 @@ All notable changes to CrootJS. Versions are git tags, served by jsDelivr as `ht
 
 - **Release** - every release tag now contains its own `.min.js` files (and source maps), built with Terser by `tools/build-min.py`, whose relative imports point to the `.min.js` of their sibling modules. Up to 0.0.37 jsDelivr minified on request but kept the import paths, so `api.min.js` imported `"./storage.js"`: a page using `api.min.js` and `storage.min.js` loaded two copies of `storage` (each with its own state), and `mapmodel.min.js` loaded `model3d.js` next to a page's `model3d.min.js`, so a viewer created through one copy was unknown to the other. 13 modules have relative imports. The `.min.js` files live only in the tag's commit; `main` holds the source. Don't mix `.js` and `.min.js` on one page.
 - **crootjs.d.ts** - `getJSON`, `postJSON`, `putJSON`, `deleteJSON`, `uploadFile` and `downloadFile` have typed options (`CrootJS.GetOptions`, `CrootJS.CacheOptions`, `CrootJS.RequestOptions`, `CrootJS.UploadOptions`, `CrootJS.DownloadOptions`), overloads for the options-object and token forms, and a type parameter for `data` (`getJSON<T>()`; with `cache.select` it is inferred). `"nofile"` is only in `uploadFile`'s error type and `"select"` only in `getJSON`'s.
-- **api.js** - the rate-limit pause from 0.0.37 also applies without stored data: a first visitor who gets a `403`/`429` with `Retry-After` (or `X-RateLimit-Reset` when the quota is `0`) sends no more requests to that URL until then; the result is that status with `data: null`, `cached: true` and a `Retry-After` header with the seconds left. With stored data and `staleIfError` the stored data is returned as before; without `staleIfError` the pause now applies too.
+- **api.js (Changed)** - the rate-limit pause from 0.0.37 also applies without stored data: a first visitor who gets a `403`/`429` with `Retry-After` (or `X-RateLimit-Reset` when the quota is `0`) sends no more requests to that URL until then; the result is that status with `data: null`, `cached: true` and a `Retry-After` header with the seconds left. With stored data and `staleIfError` the stored data is returned as before; without `staleIfError` the pause now applies too.
 - **tests/** - 198 tests; the whole suite also passes against the built `.min.js` files.
 
 ## [0.0.37](https://github.com/crootjs/lib/releases/tag/v0.0.37) - 2026-11-24

@@ -372,7 +372,8 @@ describe("api.js", () => {
             assert.equal(calls, 1, "selama jeda tidak ada request");
             assert.equal(second.status, 429);
             assert.equal(second.data, null);
-            assert.equal(second.cached, true);
+            assert.equal(second.cached, false, "tidak ada data dari cache");
+            assert.equal(second.paused, true);
             const wait = Number(second.headers.get("Retry-After"));
             assert.ok(wait > 80 && wait <= 90, `Retry-After ${wait}`);
             const other = await getJSON("https://contoh.test/lain", null, { cache });

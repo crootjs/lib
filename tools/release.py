@@ -1,9 +1,9 @@
 """Membuat tag dan GitHub Release dari CHANGELOG.md. Dijalankan workflow setiap push ke main,
 setelah uji lolos (.github/workflows/test.yml):
 
-- Versi teratas di CHANGELOG.md yang tag-nya belum ada -> tag dibuat di commit anak dari commit
-  ini yang juga berisi <modul>.min.js buatan tools/build-min.py (import-nya ke ./<modul>.min.js).
-  Commit itu tidak masuk main; jsDelivr menyajikan .min.js dari tag apa adanya.
+- Versi teratas di CHANGELOG.md yang tag-nya belum ada -> tag dibuat di commit rilis: isi commit
+  ini ditambah <modul>.min.js buatan tools/build-min.py (import-nya ke ./<modul>.min.js), di
+  branch dist (bukan main). jsDelivr menyajikan .min.js dari tag apa adanya.
 - Setiap versi di CHANGELOG.md yang tag-nya ada tapi belum punya GitHub Release -> release
   dibuat dengan judul dan isi bagian versi itu. Yang terbaru ditandai "Latest".
 
@@ -21,10 +21,12 @@ import sys
 
 LIB = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
+# Branch berisi commit rilis (kode + .min.js). main tetap hanya kode sumber.
+DIST = "dist"
 
 
-def run(*args, check=True):
-    result = subprocess.run(args, cwd=LIB, capture_output=True, text=True)
+def run(*args, check=True, env=None):
+    result = subprocess.run(args, cwd=LIB, capture_output=True, text=True, env=env)
     if check and result.returncode != 0:
         sys.exit(f"{' '.join(args)} gagal:\n{result.stderr}")
     return result
@@ -50,17 +52,35 @@ def sections():
 
 
 def tag_with_min(tag):
-    branch = run("git", "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
     act(sys.executable, os.path.join("tools", "build-min.py"))
-    act("git", "checkout", "--detach")
-    # -f karena .gitignore menolak *.min.js: berkas ini hanya untuk commit tag.
     built = sorted(os.path.basename(path) for pattern in ("*.min.js", "*.min.js.map") for path in glob.glob(os.path.join(LIB, pattern)))
-    act("git", "add", "-f", *built)
-    act("git", "commit", "-m", f"{tag}: berkas .min.js dengan import ke .min.js")
-    act("git", "tag", tag)
-    act("git", "push", "origin", tag)
-    # Kembali ke main, supaya langkah workflow berikutnya (naikkan pin, push) bekerja di main.
-    act("git", "checkout", branch)
+    if DRY_RUN:
+        print(f"+ commit {tag} (main + {len(built)} berkas .min) di branch {DIST}, tag {tag}")
+        return
+    # Pohon commit rilis = main + .min.js, disusun di index sementara supaya working tree dan
+    # branch yang sedang aktif tidak tersentuh (-f karena .gitignore menolak *.min.js di main).
+    index = os.path.join(LIB, ".git", "release-index")
+    env = {**os.environ, "GIT_INDEX_FILE": index}
+    run("git", "read-tree", "HEAD", env=env)
+    run("git", "add", "-f", *built, env=env)
+    tree = run("git", "write-tree", env=env).stdout.strip()
+    os.remove(index)
+    # Commit rilis disambung ke branch dist (induk: main dan ujung dist sebelumnya), supaya setiap
+    # tag ada di sebuah branch dan tidak ditandai GitHub "does not belong to any branch". Saat dist
+    # belum ada, tag lama yang belum masuk branch mana pun ikut menjadi induknya.
+    parents = [run("git", "rev-parse", "HEAD").stdout.strip()]
+    if run("git", "ls-remote", "--exit-code", "origin", f"refs/heads/{DIST}", check=False).returncode == 0:
+        run("git", "fetch", "-q", "origin", DIST)
+        parents.append(run("git", "rev-parse", "FETCH_HEAD").stdout.strip())
+    else:
+        orphans = run("git", "tag", "--no-merged", "HEAD", "-l", "v*").stdout.split()
+        parents += [run("git", "rev-parse", f"{name}^{{commit}}").stdout.strip() for name in orphans]
+    args = ["git", "commit-tree", tree, "-m", f"{tag}: berkas .min.js dengan import ke .min.js"]
+    for parent in parents:
+        args += ["-p", parent]
+    commit = run(*args).stdout.strip()
+    act("git", "tag", tag, commit)
+    act("git", "push", "origin", tag, f"{commit}:refs/heads/{DIST}")
 
 
 def main():

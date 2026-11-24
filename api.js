@@ -113,11 +113,12 @@ function requestJSON(method, target_url, responseFunction, datajson, options) {
     // Server sebelumnya meminta jeda (403/429 dengan Retry-After atau X-RateLimit-Reset): sampai
     // waktunya tidak ada request, karena pasti ditolak lagi dan, di IP bersama (jaringan seluler),
     // ikut menghabiskan kuota orang lain. Dengan staleIfError dan data tersimpan, data itu yang
-    // dipakai; selain itu hasilnya status penolakan tadi dengan Retry-After sisa jedanya.
+    // dipakai; selain itu hasilnya status penolakan tadi dengan Retry-After sisa jedanya dan
+    // paused: true (bukan cached: tidak ada data yang diambil dari cache).
     if (matched && matched.retryAt && Date.now() < matched.retryAt) {
         const result = stored && cache.staleIfError
             ? { status: stored.status, data: stored.data, headers: new Headers(), error: null, cached: true, stale: true, staleReason: matched.retryStatus }
-            : { status: matched.retryStatus, data: null, headers: new Headers({ "Retry-After": String(Math.ceil((matched.retryAt - Date.now()) / 1000)) }), error: null, cached: true };
+            : { status: matched.retryStatus, data: null, headers: new Headers({ "Retry-After": String(Math.ceil((matched.retryAt - Date.now()) / 1000)) }), error: null, cached: false, paused: true };
         return Promise.resolve().then(() => respond(result));
     }
     if (stored && stored.etag && !headers.has("If-None-Match")) headers.set("If-None-Match", stored.etag);
@@ -213,7 +214,8 @@ function requestJSON(method, target_url, responseFunction, datajson, options) {
 // "timeout" / "abort" / "offline" / "network" saat status 0; cached = true kalau data dari cache;
 // stale = true hanya kalau data tersimpan dipakai karena request gagal, dengan staleReason = status
 // HTTP kegagalannya atau jenis kegagalan jaringan. Setelah 403/429 dengan Retry-After atau
-// X-RateLimit-Reset, request dengan cache dijeda sampai waktu itu (paling lama 1 jam).
+// X-RateLimit-Reset, request dengan cache dijeda sampai waktu itu (paling lama 1 jam); tanpa data
+// tersimpan hasilnya paused = true dengan status penolakan itu.
 // error "select" (dengan status asli server dan data null) kalau cache.select melempar error.
 export function getJSON(target_url, responseFunction, tokenkey = null, tokenvalue = null) {
     return requestJSON('GET', target_url, responseFunction, undefined, readOptions(tokenkey, tokenvalue));
