@@ -2,6 +2,14 @@
 
 All notable changes to CrootJS. Versions are git tags, served by jsDelivr as `https://cdn.jsdelivr.net/gh/crootjs/lib@<version>/<module>.js`; each is also a [GitHub release](https://github.com/crootjs/lib/releases).
 
+## [0.0.39](https://github.com/crootjs/lib/releases/tag/v0.0.39) - 2026-11-24
+
+**api.js: rewrap the getJSON comment; regenerate crootjs.d.ts (0.0.38 shipped a stale comment)**
+
+- api.js: rewrap the getJSON comment; regenerate crootjs.d.ts (0.0.38 shipped a stale comment)
+- Berkas yang berubah: `api.js`.
+- Versi ini dibuat otomatis dari judul commit (tools/auto-version.py).
+
 ## [0.0.38](https://github.com/crootjs/lib/releases/tag/v0.0.38) - 2026-11-24
 
 **.min.js files that import .min.js, typed api.js options, rate-limit pause for first visitors**
