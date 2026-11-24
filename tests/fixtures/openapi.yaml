@@ -1,0 +1,116 @@
+openapi: 3.0.3
+info:
+  title: Example Notes API
+  description: >-
+    A minimal example backend used to show how an OpenAPI/Swagger-documented
+    API pairs with a CrootJS frontend. See usage.js in this example folder
+    for the matching getJSON/postJSON/putJSON/deleteJSON calls. Replace this
+    spec with your own backend's documentation — the pairing pattern is what
+    matters, not this specific API.
+  version: 1.0.0
+externalDocs:
+  description: CrootJS api.js reference
+  url: https://croot.js.org/docs/api/
+servers:
+  - url: https://api.example.com
+tags:
+  - name: notes
+    description: CRUD operations on notes
+paths:
+  /notes:
+    get:
+      tags:
+        - notes
+      summary: List all notes
+      operationId: listNotes
+      responses:
+        '200':
+          description: A list of notes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Note'
+    post:
+      tags:
+        - notes
+      summary: Create a note
+      operationId: createNote
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NoteInput'
+      responses:
+        '201':
+          description: Note created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Note'
+  /notes/{id}:
+    put:
+      tags:
+        - notes
+      summary: Update a note
+      operationId: updateNote
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NoteInput'
+      responses:
+        '200':
+          description: Note updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Note'
+        '404':
+          description: Note not found
+    delete:
+      tags:
+        - notes
+      summary: Delete a note
+      operationId: deleteNote
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Note deleted
+        '404':
+          description: Note not found
+components:
+  schemas:
+    NoteInput:
+      type: object
+      required:
+        - title
+      properties:
+        title:
+          type: string
+          example: Buy groceries
+        done:
+          type: boolean
+          example: false
+    Note:
+      allOf:
+        - $ref: '#/components/schemas/NoteInput'
+        - type: object
+          properties:
+            id:
+              type: string
+              example: "64f1a2b3c4d5e6f708192a3b"

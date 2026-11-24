@@ -1,0 +1,89 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Uji Perpustakaan",
+    "version": "2.0.0",
+    "description": "Spesifikasi **contoh** untuk uji openapi.js.",
+    "license": { "name": "MIT", "url": "https://opensource.org/licenses/MIT" },
+    "contact": { "name": "Tim", "url": "javascript:alert(1)", "email": "tim@example.com" }
+  },
+  "servers": [
+    { "url": "https://{env}.example.com/v1", "description": "Utama", "variables": { "env": { "default": "api" } } },
+    { "url": "/lokal" }
+  ],
+  "security": [{ "bearer": [] }],
+  "tags": [{ "name": "buku", "description": "Koleksi buku" }, { "name": "kosong" }],
+  "paths": {
+    "/buku": {
+      "get": {
+        "tags": ["buku"], "operationId": "daftarBuku", "summary": "Daftar buku", "security": [],
+        "parameters": [
+          { "name": "halaman", "in": "query", "schema": { "type": "integer", "minimum": 1 }, "example": 2 },
+          { "name": "urut", "in": "query", "schema": { "type": "string", "enum": ["judul", "tahun"] } }
+        ],
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Buku" } } } } } }
+      },
+      "post": {
+        "tags": ["buku"], "operationId": "tambahBuku", "summary": "Tambah buku",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Buku" } } } },
+        "responses": { "201": { "$ref": "#/components/responses/Dibuat" }, "400": { "$ref": "lain.yaml#/Galat" } }
+      }
+    },
+    "/buku/{buku-id}": {
+      "parameters": [{ "$ref": "#/components/parameters/BukuId" }],
+      "patch": {
+        "tags": ["buku"], "operationId": "ubahBuku", "deprecated": true,
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Buku" } } } },
+        "responses": { "200": { "description": "OK" } }
+      },
+      "delete": {
+        "tags": ["buku"], "operationId": "hapusBuku",
+        "security": [{ "kunci": [] }],
+        "responses": { "204": { "description": "Dihapus" } }
+      }
+    },
+    "/sampul": {
+      "post": {
+        "operationId": "unggahSampul",
+        "requestBody": { "content": { "multipart/form-data": { "schema": { "type": "object", "properties": { "gambar": { "type": "string", "format": "binary" }, "judul": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "OK" } }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearer": { "type": "http", "scheme": "bearer" },
+      "kunci": { "type": "apiKey", "in": "header", "name": "X-API-Key" }
+    },
+    "parameters": {
+      "BukuId": { "name": "buku-id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+    },
+    "responses": {
+      "Dibuat": { "description": "Buku dibuat", "content": { "application/json": { "examples": { "satu": { "value": { "id": "b1" } } } } } }
+    },
+    "schemas": {
+      "Penulis": {
+        "type": "object",
+        "properties": {
+          "nama": { "type": "string" },
+          "email": { "type": ["string", "null"], "format": "email" },
+          "buku": { "type": "array", "items": { "$ref": "#/components/schemas/Buku" } }
+        }
+      },
+      "Buku": {
+        "type": "object",
+        "required": ["judul"],
+        "properties": {
+          "id": { "type": "string", "readOnly": true, "format": "uuid" },
+          "judul": { "type": "string", "description": "Judul *lengkap*" },
+          "tahun": { "type": "integer" },
+          "terbit": { "type": "string", "format": "date-time" },
+          "penulis": { "$ref": "#/components/schemas/Penulis" },
+          "format": { "oneOf": [{ "type": "string", "enum": ["cetak", "digital"] }, { "type": "null" }] },
+          "a~b/c": { "$ref": "#/components/schemas/a~0b~1c" }
+        }
+      },
+      "a~b/c": { "type": "boolean" }
+    }
+  }
+}

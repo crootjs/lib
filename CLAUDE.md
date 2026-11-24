@@ -10,12 +10,12 @@ This project uses [CrootJS](https://github.com/crootjs/lib) — vanilla ES6+ Jav
 - **No inline event handler attributes** (`onclick`, `onchange`, `oninput`, etc). Attach listeners in JS with `addEventListener`, or with CrootJS's own helpers (`onClick`, `onChange`, `onInput` from `element.js`).
 - **Every JS file must be loaded as an ES module**: `<script type="module" src="script.js"></script>` — never a plain classic script with inline logic.
 
-Exception: a third-party library's own CDN `<script src="...">` tag (e.g. Lucide, SweetAlert2) is fine — that's an external dependency, not inline application code.
+Exception: a third-party library's own CDN `<script src="...">` tag is fine — that's an external dependency, not inline application code.
 
 ## Mandatory: no AI slop
 
 - **Never invent an API.** Check every CrootJS function name, parameter order, and option against https://croot.js.org/llms.txt (or the module's docs page) for the pinned version before using it. If it doesn't exist, write the code explicitly instead of guessing.
-- **Use CrootJS instead of re-implementing it** (`api.js` requests and uploads, `element.js` DOM helpers, `form.js` validation messages, `router.js` page routing, `table.js` data tables, `chart.js` charts, `markdown.js` Markdown, `qr.js` QR codes, `map.js` maps, `model3d.js` 3D, `toast.js` notifications, `croot.css` + `icons.css` styling and icons), and don't add libraries that duplicate it (Leaflet, Three.js, axios, jQuery, DataTables, Chart.js, marked, Bootstrap/Bulma, icon fonts).
+- **Use CrootJS instead of re-implementing it** (`api.js` requests and uploads, `element.js` DOM helpers, `form.js` validation messages, `router.js` page routing, `table.js` data tables, `chart.js` charts, `markdown.js` Markdown, `qr.js` QR codes, `openapi.js` API documentation from an OpenAPI spec, `map.js` maps, `model3d.js` 3D, `toast.js` notifications, `croot.css` + `icons.css` styling and icons), and don't add libraries that duplicate it (Leaflet, Three.js, axios, jQuery, DataTables, Chart.js, marked, Swagger UI, js-yaml, Bootstrap/Bulma, icon fonts).
 - **No dead weight:** no unused imports/variables/functions, commented-out code, `TODO` stubs, or files that aren't needed.
 - **Comments explain why, not what** — no line-by-line narration.
 - **No fake content:** no lorem ipsum, invented statistics, testimonials, or marketing claims; label sample data as sample.

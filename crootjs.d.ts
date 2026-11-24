@@ -2809,6 +2809,56 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/model3dtools.min.js" {
     export function downloadGLB(id: string, filename?: string, responseFunction?: (...args: any[]) => any): Promise<Blob | null>;
 }
 
+declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/openapi.js" {
+    /**
+     * Contoh nilai untuk sebuah skema: example/default/enum dari spesifikasi, atau dibuat dari tipenya
+     * (format date-time, email, uuid, ...; array berisi satu butir). $ref berputar berhenti dengan null.
+     * direction "request" melewatkan properti readOnly, "response" melewatkan writeOnly.
+     */
+    export function openAPIExample(schema: any, spec?: Record<string, any>, direction?: string): any;
+    /**
+     * Mengambil dan memeriksa spesifikasi. source: URL (JSON, atau YAML yang diurai dengan yaml.js)
+     * atau object yang sudah jadi. Promise tidak pernah reject; hasilnya { spec, error, message }:
+     * error null, atau "network" / "timeout" / "http" / "parse" / "swagger2" / "version", dengan
+     * message yang bisa dibaca orang. options: texts (pesan), timeout (ms, bawaan 15000).
+     */
+    export function loadOpenAPI(source: any, options?: Record<string, any>): Promise<{ spec: Record<string, any> | null; error: null | "network" | "timeout" | "http" | "parse" | "swagger2" | "version"; message: string }>;
+    /**
+     * Menampilkan dokumentasi spesifikasi OpenAPI di dalam elemen id (isinya diganti). source: URL
+     * atau object spesifikasi. options: tryIt (true), snippets (true), server (URL dasar pengganti),
+     * expand (false: buka semua operasi), timeout (ms untuk memuat dan "Coba", bawaan 15000), texts,
+     * onError(result loadOpenAPI).
+     * Promise berisi { spec, element, remove() }, atau null kalau elemen tidak ada atau spesifikasi
+     * gagal dimuat (pesannya tampil di dalam elemen). Tidak pernah reject.
+     */
+    export function renderOpenAPI(id: string, source: any, options?: Record<string, any>): Promise<{ spec: Record<string, any>; element: HTMLElement; remove(): void } | null>;
+}
+
+declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/openapi.min.js" {
+    /**
+     * Contoh nilai untuk sebuah skema: example/default/enum dari spesifikasi, atau dibuat dari tipenya
+     * (format date-time, email, uuid, ...; array berisi satu butir). $ref berputar berhenti dengan null.
+     * direction "request" melewatkan properti readOnly, "response" melewatkan writeOnly.
+     */
+    export function openAPIExample(schema: any, spec?: Record<string, any>, direction?: string): any;
+    /**
+     * Mengambil dan memeriksa spesifikasi. source: URL (JSON, atau YAML yang diurai dengan yaml.js)
+     * atau object yang sudah jadi. Promise tidak pernah reject; hasilnya { spec, error, message }:
+     * error null, atau "network" / "timeout" / "http" / "parse" / "swagger2" / "version", dengan
+     * message yang bisa dibaca orang. options: texts (pesan), timeout (ms, bawaan 15000).
+     */
+    export function loadOpenAPI(source: any, options?: Record<string, any>): Promise<{ spec: Record<string, any> | null; error: null | "network" | "timeout" | "http" | "parse" | "swagger2" | "version"; message: string }>;
+    /**
+     * Menampilkan dokumentasi spesifikasi OpenAPI di dalam elemen id (isinya diganti). source: URL
+     * atau object spesifikasi. options: tryIt (true), snippets (true), server (URL dasar pengganti),
+     * expand (false: buka semua operasi), timeout (ms untuk memuat dan "Coba", bawaan 15000), texts,
+     * onError(result loadOpenAPI).
+     * Promise berisi { spec, element, remove() }, atau null kalau elemen tidak ada atau spesifikasi
+     * gagal dimuat (pesannya tampil di dalam elemen). Tidak pernah reject.
+     */
+    export function renderOpenAPI(id: string, source: any, options?: Record<string, any>): Promise<{ spec: Record<string, any>; element: HTMLElement; remove(): void } | null>;
+}
+
 declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/pwa.js" {
     /**
      * Mendaftarkan service worker situs Anda (file di domain sendiri, mis. "sw.js" di samping index.html).
@@ -3179,4 +3229,20 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/websocket.min.js" {
     export function connectws(id: string, url_ws: any, onMessage: any): any;
     export function closeWebSocket(wsocket: any): any;
     export function sendMessagetoWebSocket(msg: any, wsocket: any): any;
+}
+
+declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/yaml.js" {
+    /**
+     * Mengubah teks YAML menjadi nilai JavaScript. Melempar SyntaxError (dengan error.line) kalau
+     * teksnya tidak valid atau memakai fitur yang tidak didukung.
+     */
+    export function parseYAML(text: any): any;
+}
+
+declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/yaml.min.js" {
+    /**
+     * Mengubah teks YAML menjadi nilai JavaScript. Melempar SyntaxError (dengan error.line) kalau
+     * teksnya tidak valid atau memakai fitur yang tidak didukung.
+     */
+    export function parseYAML(text: any): any;
 }

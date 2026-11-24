@@ -4,3 +4,5 @@
 
 Everything else the tests need (GLB models, PMTiles archives) is generated in code - see `glb.js` and `mapoffline.test.js`.
 - `pwa-sw.js` - service worker for `pwa.test.js`; it loads `serviceworker.js` from this folder instead of jsDelivr and precaches this README.
+- `openapi.yaml` - copy of the Notes API spec from `examples/api/swagger/`, parsed by `yaml.test.js` and rendered by `openapi.test.js`.
+- `openapi.json` - sample OpenAPI 3.1 spec for `openapi.test.js` (tags, `$ref` with JSON-pointer escapes and cycles, security schemes, multipart, PATCH).

@@ -2,6 +2,15 @@
 
 All notable changes to CrootJS. Versions are git tags, served by jsDelivr as `https://cdn.jsdelivr.net/gh/crootjs/lib@<version>/<module>.js`; each is also a [GitHub release](https://github.com/crootjs/lib/releases).
 
+## [0.0.36](https://github.com/crootjs/lib/releases/tag/v0.0.36) - 2026-11-24
+
+**openapi.js: API documentation without Swagger UI, and yaml.js**
+
+- **openapi.js (new)** - `renderOpenAPI(id, source, options)` shows API documentation from an OpenAPI 3.0/3.1 file (YAML or JSON) or object, replacing Swagger UI (about 11 KB gzipped instead of about 460 KB). Operations grouped by tag, filterable, deep-linkable (`#operationId`), built when first opened; parameters, request bodies, responses, schema trees (local `$ref` with cycles shown, `allOf` merged, `oneOf`/`anyOf`), and examples from the spec or generated from the schema. Every operation shows ready-to-copy CrootJS code (`getJSON`, `postJSON`, `putJSON`, `deleteJSON`, `uploadFile`; `fetch` for PATCH and other methods) importing `api.js` from the same jsDelivr version, and a "Try it" form that sends real requests (bearer, OAuth2/OIDC as bearer, apiKey in header or query; tokens in memory only; CORS failures explained). Options `tryIt`, `snippets`, `server`, `expand`, `timeout`, `texts`, `onError`. Also `loadOpenAPI(source, options)` → `{ spec, error, message }` and `openAPIExample(schema, spec, direction)`. Markdown descriptions use markdown.js and YAML uses yaml.js, both downloaded only when needed. Swagger 2.0, external `$ref` files, per-operation `servers`, `webhooks`, HTTP basic and cookie apiKey are not supported.
+- **yaml.js (new)** - `parseYAML(text)`: a small YAML 1.2 parser (core schema) with block and flow collections, quoted and block scalars, comments, anchors and aliases. Unsupported features (`<<` merge keys, custom tags, complex keys, several documents, duplicate keys, tab indentation) throw a `SyntaxError` with the line number. Nesting is limited and `__proto__` keys can't change prototypes.
+- **CI** - browser tests run in the Playwright container; installing WebKit with apt on the runner kept hanging until the 10-minute limit.
+- **tests/** - 193 tests, including openapi.js and yaml.js.
+
 ## [0.0.35](https://github.com/crootjs/lib/releases/tag/v0.0.35) - 2026-11-24
 
 **getJSON cache: stale data on failure, entries tied to their URL, select**
