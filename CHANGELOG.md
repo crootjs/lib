@@ -2,6 +2,18 @@
 
 All notable changes to CrootJS. Versions are git tags, served by jsDelivr as `https://cdn.jsdelivr.net/gh/crootjs/lib@<version>/<module>.js`; each is also a [GitHub release](https://github.com/crootjs/lib/releases).
 
+## [0.0.41](https://github.com/crootjs/lib/releases/tag/v0.0.41) - 2026-11-24
+
+**ui.css, themes.css and tabs.js: app components, four themes, and page patterns**
+
+- **ui.css (new)** - optional app components on native HTML, about 3 KB gzipped, in `@layer croot.ui` after croot.css: an app shell whose sidebar is a column on wide screens and a `popover` drawer on phones (no JavaScript), breadcrumb, tabs, `<details>` and `popover` menus, toggletips, `.actions`, an exclusive accordion (`<details name>`), skeleton (still with reduced motion), summary numbers (`.stats`), status badges, avatar, switch (`role="switch"` checkbox), steps (`ol.steps`, earlier steps marked done with `:has()`), button group, empty state, toolbar, scrollable table wrapper, description list (`dl.meta`, container query), and footer.
+- **themes.css (new)** - four named themes chosen with `<html data-croot-theme>`: `kampus`, `kertas`, `kontras`, `niaga`, each in light and dark (following the system or `data-theme`), every text/background pair at least WCAG AA, no web fonts; about 1.2 KB gzipped. New token `--croot-heading-font`.
+- **tabs.js (new)** - `initTabs(id)`: ARIA tabs with roving tabindex, arrow keys (reversed in right-to-left pages), Home/End; returns `{ select(index), remove() }`.
+- **Page patterns** - croot.js.org/examples/pola/: app shell, login, list and detail, multi-step form, settings, empty state and 404, and a landing page, with a theme picker. The docs gained a "No AI look" convention (no gradients, glass effects, emoji icons, identical feature cards, web fonts, or marketing copy).
+- **chart.js** - the hidden data table for screen readers is wrapped in a clipped `<div>` and positioned inside the chart: a table ignores `width: 1px`, so with large type it made phone pages a few pixels too wide.
+- **croot.css** - `fieldset` has `min-width: 0`, so a file input no longer pushes it off a phone screen.
+- **tests/** - 223 tests.
+
 ## [0.0.40](https://github.com/crootjs/lib/releases/tag/v0.0.40) - 2026-11-24
 
 **Release commits on the dist branch, modulepreload lists, paused results**

@@ -25,6 +25,18 @@ Exception: a third-party library's own CDN `<script src="...">` tag is fine — 
 - **Verify before saying "done":** run the page through a local server, check the console for errors, try the feature at phone width; say what you did not test.
 - For editor autocomplete on CDN imports, copy [`crootjs.d.ts`](https://github.com/crootjs/lib/blob/main/crootjs.d.ts) next to your `jsconfig.json`.
 
+## Mandatory: no "AI look"
+
+Pages must not look AI-generated. Start from `croot.css` (+ optional `ui.css` components, a `themes.css` theme, `icons.css`) and the page patterns at https://croot.js.org/examples/pola/, then change only what the product needs.
+
+- **No** gradient backgrounds or gradient text, glassmorphism/`backdrop-filter`, glows, blobs, hover lifts, scroll animations.
+- **No** emoji as icons, icons in colored circles, or three identical feature cards; use `icons.css` next to text, or a plain list/table.
+- **No** web fonts by default (Inter, Poppins): use the system stack from croot.css or the theme's heading font.
+- **No** shadows/large radius on every card: borders and whitespace; shadows only on dialogs and menus; radius from `--croot-radius`.
+- **No** marketing copy, slogans, invented numbers or testimonials; put the task first (a back-office page opens on its data).
+- One accent color (`--croot-accent`), used sparingly. Never color as the only signal: add text ("Naik 4%", "Gagal").
+- Full rules with do/don't table: https://croot.js.org/docs/conventions#5-no-ai-look
+
 ## Importing CrootJS
 
 - Always import from a pinned version tag: `https://cdn.jsdelivr.net/gh/crootjs/lib@<version>/<module>.js`. Never `@latest` in committed code.

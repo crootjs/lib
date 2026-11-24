@@ -215,6 +215,9 @@
 
 
     fieldset {
+        /* Bawaan browser min-width: min-content membuat input file mendorong fieldset keluar
+           layar ponsel. */
+        min-width: 0;
         margin: 0 0 var(--croot-space);
         padding: 0.75rem var(--croot-space);
         border: 1px solid var(--croot-border);

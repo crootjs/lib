@@ -15,10 +15,12 @@ function injectStyles() {
     if (document.getElementById("crootjs-chart-style")) return;
     const style = document.createElement("style");
     style.id = "crootjs-chart-style";
+    // position: relative pada .crootjs-chart: bagian tersembunyi untuk pembaca layar
+    // (.crootjs-chart-hidden) berposisi absolut dan diukur dari grafiknya, bukan dari halaman.
     // :where() menurunkan spesifisitas aturan mode gelap supaya `.crootjs-chart { --croot-chart-1: ... }`
     // dari CSS halaman tetap menang di kedua mode.
     style.textContent = `
-.crootjs-chart { ${vars(LIGHT)} display: block; color: var(--croot-text, #1e293b); }
+.crootjs-chart { ${vars(LIGHT)} display: block; position: relative; color: var(--croot-text, #1e293b); }
 @media (prefers-color-scheme: dark) { :where(:root:not([data-theme="light"])) .crootjs-chart { ${vars(DARK)} } }
 :where(:root[data-theme="dark"]) .crootjs-chart { ${vars(DARK)} }
 .crootjs-chart-plot { position: relative; }
@@ -133,7 +135,10 @@ export function createChart(id, config) {
     tooltip.hidden = true;
     tooltip.setAttribute("aria-hidden", "true");
     const legend = html("ul", "crootjs-chart-legend", container);
-    const table = html("table", "crootjs-chart-hidden", container);
+    // Tabel dibungkus div tersembunyi: tabel sendiri tidak patuh width: 1px, jadi isinya yang
+    // panjang (white-space: nowrap) bisa melebarkan halaman ponsel; div memotongnya.
+    const tableBox = html("div", "crootjs-chart-hidden", container);
+    const table = html("table", "", tableBox);
     const live = html("div", "crootjs-chart-hidden", container);
     live.setAttribute("aria-live", "polite");
 
@@ -506,7 +511,7 @@ export function createChart(id, config) {
             observer.disconnect();
             plot.remove();
             legend.remove();
-            table.remove();
+            tableBox.remove();
             live.remove();
             container.classList.remove("crootjs-chart");
             charts.delete(container);

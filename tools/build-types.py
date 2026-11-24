@@ -106,6 +106,7 @@ RETURNS = {
     ("qr.js", "qrSVG"): "string",
     ("qr.js", "renderQR"): "SVGSVGElement",
     ("table.js", "createTable"): "{ setRows(rows: Record<string, any>[]): Promise<void>; refresh(): Promise<void>; ready: Promise<void>; getState(): { page: number; pageSize: number; sort: { key: string; dir: \"asc\" | \"desc\" } | null; query: string; total: number }; remove(): void } | null",
+    ("tabs.js", "initTabs"): "{ select(index: number): void; remove(): void } | null",
     ("chart.js", "niceScale"): "{ min: number; max: number; step: number; ticks: number[] }",
     ("chart.js", "createChart"): "{ element: HTMLElement; update(changes: Record<string, any>): void; remove(): void } | null",
     ("router.js", "startRouter"): "{ navigate(path: string, options?: { replace?: boolean }): Promise<void>; href(path: string): string; current(): { path: string; params: Record<string, string>; query: URLSearchParams; pattern: string | null } | null; stop(): void }",

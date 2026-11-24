@@ -3205,6 +3205,24 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/table.min.js" {
     export function createTable(id: string, options?: Record<string, any>): { setRows(rows: Record<string, any>[]): Promise<void>; refresh(): Promise<void>; ready: Promise<void>; getState(): { page: number; pageSize: number; sort: { key: string; dir: "asc" | "desc" } | null; query: string; total: number }; remove(): void } | null;
 }
 
+declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/tabs.js" {
+    /**
+     * Mengaktifkan tab di dalam elemen role="tablist" dengan ID id. Setiap role="tab" menunjuk
+     * panelnya lewat aria-controls. Tab awal: yang aria-selected="true", atau yang pertama.
+     * Mengembalikan { select(index), remove() } atau null kalau elemen tidak ada.
+     */
+    export function initTabs(id: string): { select(index: number): void; remove(): void } | null;
+}
+
+declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/tabs.min.js" {
+    /**
+     * Mengaktifkan tab di dalam elemen role="tablist" dengan ID id. Setiap role="tab" menunjuk
+     * panelnya lewat aria-controls. Tab awal: yang aria-selected="true", atau yang pertama.
+     * Mengembalikan { select(index), remove() } atau null kalau elemen tidak ada.
+     */
+    export function initTabs(id: string): { select(index: number): void; remove(): void } | null;
+}
+
 declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/template.js" {
     export const refreshbutton: any;
     export const loginbutton: any;

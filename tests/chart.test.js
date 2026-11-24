@@ -19,6 +19,23 @@ describe("chart.js", () => {
         assert.deepEqual(niceScale(24.3, 31.8, 4).ticks, [24, 26, 28, 30, 32]);
     });
 
+    test("tabel untuk pembaca layar tidak melebarkan wadah sempit", async () => {
+        const id = fixture(200, 200);
+        const root = document.getElementById(id);
+        root.style.fontSize = "24px";
+        const labels = ["Penjualan minggu pertama bulan ini", "Penjualan minggu kedua bulan ini"];
+        const chart = createChart(id, { labels, series: [{ name: "Toko pusat di jalan utama", values: [1250000, 980000] }], title: "Uji lebar" });
+        await nextFrame();
+        assert.equal(root.querySelector("table caption").textContent, "Uji lebar", "tabel tetap ada");
+        for (const hidden of root.querySelectorAll(".crootjs-chart-hidden")) {
+            assert.ok(hidden.getBoundingClientRect().width <= 1, `lebar ${hidden.getBoundingClientRect().width}px`);
+            assert.equal(hidden.offsetParent, root, "diukur dari grafiknya, bukan dari halaman");
+        }
+        assert.ok(root.scrollWidth <= root.clientWidth + 1, `scrollWidth ${root.scrollWidth} > ${root.clientWidth}`);
+        chart.remove();
+        assert.equal(root.querySelector("table"), null);
+    });
+
     test("batang berkelompok, bertumpuk, dan garis: jumlah tanda dan legenda", () => {
         const id = fixture(480, 320);
         const series = [{ name: "A", values: [10, 20, 30, 40] }, { name: "B", values: [5, null, 15, 25] }];
