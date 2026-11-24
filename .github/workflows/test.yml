@@ -22,15 +22,15 @@ jobs:
       fail-fast: false
       matrix:
         browser: [chromium, firefox, webkit]
+    # Image resmi Playwright sudah berisi ketiga browser beserta pustaka sistemnya. Memasang
+    # WebKit dengan --with-deps di runner biasa beberapa kali macet di apt sampai batas 10 menit.
+    container: mcr.microsoft.com/playwright/python:v1.65.2-noble
+    env:
+      HOME: /root  # Firefox menolak jalan sebagai root kalau HOME milik pengguna lain
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-      - name: Pasang Playwright dan ${{ matrix.browser }}
-        run: |
-          pip install playwright==1.65.2
-          python -m playwright install --with-deps ${{ matrix.browser }}
+      - name: Pasang Playwright
+        run: pip install --break-system-packages playwright==1.65.2
       - name: Jalankan uji
         run: python tests/run.py ${{ matrix.browser }}
 
