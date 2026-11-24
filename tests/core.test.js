@@ -240,6 +240,120 @@ describe("api.js", () => {
             deleteLocal("crootjs_uji_cache");
         }
     });
+    test("callback selalu jalan sesudah baris setelah getJSON, juga saat data dari cache", async () => {
+        deleteLocal("crootjs_uji_cache");
+        const original = window.fetch;
+        window.fetch = () => Promise.resolve(new Response('{"v":1}', { status: 200 }));
+        try {
+            const cache = { key: "crootjs_uji_cache", ttl: 60 };
+            for (const sumber of ["jaringan", "cache"]) {
+                const urutan = [];
+                const done = getJSON("https://contoh.test/urutan", () => urutan.push("callback"), { cache });
+                urutan.push("sesudah getJSON");
+                await done;
+                assert.deepEqual(urutan, ["sesudah getJSON", "callback"], sumber);
+            }
+        } finally {
+            window.fetch = original;
+            deleteLocal("crootjs_uji_cache");
+        }
+    });
+    test("cache.select yang melempar error: error \"select\", status asli, tidak disimpan, tidak ditutupi data lama", async () => {
+        deleteLocal("crootjs_uji_cache");
+        const original = window.fetch;
+        const report = console.error;
+        console.error = () => {};
+        let body = '{"rilis":{"tag":"v1"}}';
+        window.fetch = () => Promise.resolve(new Response(body, { status: 200 }));
+        try {
+            const url = "https://contoh.test/select";
+            const cache = { key: "crootjs_uji_cache", ttl: 0, staleIfError: true, select: d => ({ tag: d.rilis.tag }) };
+            assert.deepEqual((await getJSON(url, null, { cache })).data, { tag: "v1" });
+            // Server mengubah bentuk jawabannya, jadi select yang sama melempar TypeError.
+            body = '{"release":{"tag":"v2"}}';
+            const broken = await getJSON(url, null, { cache });
+            assert.equal(broken.status, 200);
+            assert.equal(broken.error, "select");
+            assert.equal(broken.data, null);
+            assert.equal(broken.stale, undefined, "bukan kegagalan request, jadi tidak diganti data lama");
+            assert.deepEqual(getLocal("crootjs_uji_cache").data, { tag: "v1" }, "entri lama tidak ditimpa");
+        } finally {
+            window.fetch = original;
+            console.error = report;
+            deleteLocal("crootjs_uji_cache");
+        }
+    });
+    test("select diganti: entri berbentuk lama tidak dipakai, juga tidak diperpanjang lewat 304", async () => {
+        deleteLocal("crootjs_uji_cache");
+        const sent = [];
+        const original = window.fetch;
+        window.fetch = (url, options) => {
+            sent.push(options.headers.get("If-None-Match"));
+            if (options.headers.get("If-None-Match") === '"e1"') return Promise.resolve(new Response(null, { status: 304 }));
+            return Promise.resolve(new Response('{"v":1,"w":2}', { status: 200, headers: { ETag: '"e1"' } }));
+        };
+        try {
+            const url = "https://contoh.test/bentuk";
+            const lama = await getJSON(url, null, { cache: { key: "crootjs_uji_cache", ttl: 0, select: d => ({ v: d.v }) } });
+            assert.deepEqual(lama.data, { v: 1 });
+            const baru = await getJSON(url, null, { cache: { key: "crootjs_uji_cache", ttl: 0, select: d => ({ v: d.v, w: d.w }) } });
+            assert.equal(sent[1], null, "tanpa If-None-Match, karena data tersimpan berbentuk lama");
+            assert.deepEqual(baru.data, { v: 1, w: 2 });
+        } finally {
+            window.fetch = original;
+            deleteLocal("crootjs_uji_cache");
+        }
+    });
+    test("staleReason, lalu jeda sesuai Retry-After / X-RateLimit-Reset setelah 403 atau 429", async () => {
+        deleteLocal("crootjs_uji_cache");
+        let calls = 0;
+        let reply = () => new Response('{"v":1}', { status: 200 });
+        const original = window.fetch;
+        window.fetch = () => {
+            calls++;
+            const response = reply();
+            return response ? Promise.resolve(response) : Promise.reject(new TypeError("Failed to fetch"));
+        };
+        try {
+            const url = "https://contoh.test/kuota";
+            const cache = { key: "crootjs_uji_cache", ttl: 0, staleIfError: true };
+            await getJSON(url, null, { cache });
+            reply = () => null;
+            assert.equal((await getJSON(url, null, { cache })).staleReason, "network");
+            reply = () => new Response("{}", { status: 500 });
+            assert.equal((await getJSON(url, null, { cache })).staleReason, 500);
+            assert.equal(calls, 3, "tanpa petunjuk jeda, setiap panggilan tetap meminta ke server");
+
+            const reset = Math.floor(Date.now() / 1000) + 120;
+            reply = () => new Response("{}", { status: 403, headers: { "X-RateLimit-Remaining": "0", "X-RateLimit-Reset": String(reset) } });
+            const limited = await getJSON(url, null, { cache });
+            assert.equal(limited.staleReason, 403);
+            const paused = await getJSON(url, null, { cache });
+            assert.equal(calls, 4, "selama jeda tidak ada request");
+            assert.equal(paused.stale, true);
+            assert.equal(paused.staleReason, 403);
+            assert.deepEqual(paused.data, { v: 1 });
+
+            deleteLocal("crootjs_uji_cache");
+            reply = () => new Response('{"v":1}', { status: 200 });
+            await getJSON(url, null, { cache });
+            reply = () => new Response("{}", { status: 429, headers: { "Retry-After": "30" } });
+            await getJSON(url, null, { cache });
+            const stored = getLocal("crootjs_uji_cache");
+            assert.ok(stored.retryAt > Date.now() + 25000 && stored.retryAt <= Date.now() + 30000, `retryAt ${stored.retryAt - Date.now()} ms`);
+            assert.equal((await getJSON(url, null, { cache })).staleReason, 429);
+            assert.equal(calls, 6);
+
+            setLocal("crootjs_uji_cache", { ...stored, retryAt: Date.now() - 1 });
+            reply = () => new Response('{"v":2}', { status: 200 });
+            const lagi = await getJSON(url, null, { cache });
+            assert.deepEqual(lagi.data, { v: 2 }, "sesudah jeda meminta lagi");
+            assert.equal(getLocal("crootjs_uji_cache").retryAt, undefined);
+        } finally {
+            window.fetch = original;
+            deleteLocal("crootjs_uji_cache");
+        }
+    });
     test("cache terikat ke URL; select memangkas data yang disimpan dan dikembalikan", async () => {
         deleteLocal("crootjs_uji_cache");
         const sent = [];

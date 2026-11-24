@@ -2,6 +2,17 @@
 
 All notable changes to CrootJS. Versions are git tags, served by jsDelivr as `https://cdn.jsdelivr.net/gh/crootjs/lib@<version>/<module>.js`; each is also a [GitHub release](https://github.com/crootjs/lib/releases).
 
+## [0.0.37](https://github.com/crootjs/lib/releases/tag/v0.0.37) - 2026-11-24
+
+**getJSON cache fixes: callbacks always asynchronous, select errors, rate-limit pause**
+
+- **api.js** - the callback of `getJSON` is always called after the code that follows the call, also when the data comes from the cache (before, a cache hit called it immediately, so `getJSON(url, hideSpinner, { cache }); showSpinner();` left the spinner on). The same for `uploadFile` without a file (`error: "nofile"`).
+- **api.js** - an error thrown inside `cache.select` is reported as `error: "select"` with the server's real status and `data: null`, logged with `console.error`, not stored, and not hidden by `staleIfError`. Before, it was reported as a network failure (`status: 0`, `error: "network"`).
+- **api.js** - cache entries remember which `select` produced them; after `select` changes, old entries are ignored instead of being kept alive by `304` answers.
+- **api.js** - results that use stale data carry `staleReason`: the failed HTTP status (e.g. `403`) or the network failure (`"network"`, `"timeout"`, `"offline"`).
+- **api.js** - with `staleIfError`, a `403` or `429` that says when to retry (`Retry-After`, or `X-RateLimit-Reset` when `X-RateLimit-Remaining` is `0`, as GitHub sends) pauses requests until then (at most one hour): the stored data is returned without a request, with `stale: true` and `staleReason` set to that status.
+- **tests/** - 197 tests; GitHub Pages sometimes answers `503` for missing files, so tests no longer expect exactly `404` there.
+
 ## [0.0.36](https://github.com/crootjs/lib/releases/tag/v0.0.36) - 2026-11-24
 
 **openapi.js: API documentation without Swagger UI, and yaml.js**

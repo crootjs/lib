@@ -46,6 +46,30 @@ function control(options) {
     return { signal: controller.signal, state, done };
 }
 
+// Sidik pendek (djb2) untuk teks select, supaya entri cache bisa dikenali tanpa menyimpan
+// seluruh kode fungsinya.
+function hashText(text) {
+    let hash = 5381;
+    for (let i = 0; i < text.length; i++) hash = (hash * 33 + text.charCodeAt(i)) | 0;
+    return (hash >>> 0).toString(36);
+}
+
+// Kapan server mengizinkan request lagi, dari Retry-After (detik atau tanggal HTTP) atau, kalau
+// kuota habis, X-RateLimit-Reset (detik Unix, dipakai GitHub). Paling lama satu jam ke depan,
+// supaya header yang aneh tidak membekukan data selamanya; null kalau server tidak memberi tahu.
+const MAX_RETRY_WAIT = 60 * 60 * 1000;
+function retryTime(headers) {
+    const now = Date.now();
+    const after = headers.get("Retry-After");
+    let at = null;
+    if (after) at = /^\d+$/.test(after.trim()) ? now + Number(after) * 1000 : Date.parse(after);
+    else if (headers.get("X-RateLimit-Remaining") === "0" && /^\d+$/.test(headers.get("X-RateLimit-Reset") || "")) {
+        at = Number(headers.get("X-RateLimit-Reset")) * 1000;
+    }
+    if (!Number.isFinite(at) || at <= now) return null;
+    return Math.min(at, now + MAX_RETRY_WAIT);
+}
+
 // Argumen sesudah responseFunction: (tokenkey, tokenvalue) seperti dulu, atau satu object opsi
 // { headers, timeout, signal, cache: { key, ttl } } (token bisa ditaruh di headers).
 function readOptions(tokenkey, tokenvalue) {
@@ -74,17 +98,28 @@ function requestJSON(method, target_url, responseFunction, datajson, options) {
     const cache = method === "GET" && options.cache && options.cache.key ? options.cache : null;
     // Entri dari URL lain (key sama, URL berubah) atau dari versi sebelum 0.0.35 yang belum
     // mencatat URL dianggap tidak ada.
+    // Begitu juga entri yang disimpan dengan select lain: bentuk datanya sudah tidak cocok, dan
+    // balasan 304 akan terus memperpanjang bentuk lama itu selama ETag server tidak berubah.
+    const shape = cache && cache.select ? hashText(String(cache.select)) : null;
     const entry = cache ? getLocal(cache.key) : null;
-    const stored = entry && entry.url === target_url ? entry : null;
+    const stored = entry && entry.url === target_url && (entry.shape ?? null) === shape ? entry : null;
     if (stored && Date.now() < stored.expiresAt) {
-        return Promise.resolve(respond({ status: stored.status, data: stored.data, headers: new Headers(), error: null, cached: true }));
+        // Lewat then(), supaya callback selalu jalan sesudah baris setelah getJSON, sama seperti
+        // saat data datang dari jaringan.
+        return Promise.resolve().then(() => respond({ status: stored.status, data: stored.data, headers: new Headers(), error: null, cached: true }));
+    }
+    // Server sebelumnya meminta jeda (403/429 dengan Retry-After atau X-RateLimit-Reset): sampai
+    // waktunya, data lama dipakai tanpa request, karena request baru hanya akan ditolak lagi.
+    if (stored && cache.staleIfError && stored.retryAt && Date.now() < stored.retryAt) {
+        return Promise.resolve().then(() => respond({ status: stored.status, data: stored.data, headers: new Headers(), error: null, cached: true, stale: true, staleReason: stored.retryStatus }));
     }
     if (stored && stored.etag && !headers.has("If-None-Match")) headers.set("If-None-Match", stored.etag);
 
     // staleIfError: request gagal (status 0 atau bukan 2xx) sesudah TTL habis memberi data yang
     // masih tersimpan, bukan galat. Entri hanya ditimpa saat request berhasil, jadi datanya ada.
+    // staleReason: status HTTP kegagalannya, atau jenis kegagalan jaringan saat status 0.
     const staleOr = result => cache && cache.staleIfError && stored
-        ? { status: stored.status, data: stored.data, headers: result.headers, error: null, cached: true, stale: true }
+        ? { status: stored.status, data: stored.data, headers: result.headers, error: null, cached: true, stale: true, staleReason: result.status || result.error }
         : result;
 
     const requestOptions = { method, redirect: 'follow', headers };
@@ -102,7 +137,16 @@ function requestJSON(method, target_url, responseFunction, datajson, options) {
             }
             // select memangkas data sebelum disimpan; hasil yang dikembalikan ikut dipangkas supaya
             // bentuknya sama, baik dari server maupun dari cache.
-            if (cache && cache.select && response.ok && data !== null) data = cache.select(data);
+            // Kesalahan di select adalah kesalahan kode pemanggil, bukan jaringan: dilaporkan sebagai
+            // error "select" dengan status asli server, tidak disimpan, dan tidak ditutupi data lama.
+            if (cache && cache.select && response.ok && data !== null) {
+                try {
+                    data = cache.select(data);
+                } catch (selectError) {
+                    console.error(`${method} ${target_url}: cache.select gagal:`, selectError);
+                    return { status: response.status, data: null, headers: response.headers, error: "select", cached: false };
+                }
+            }
             const result = { status: response.status, data, headers: response.headers, error: null, cached: false };
             // 304 = data tersimpan masih berlaku. Statusnya dilaporkan seperti saat disimpan (200),
             // supaya pemanggil cukup memeriksa status === 200; headers tetap milik balasan 304.
@@ -114,13 +158,19 @@ function requestJSON(method, target_url, responseFunction, datajson, options) {
             if (cache && (response.ok || result.cached)) {
                 setLocal(cache.key, {
                     url: target_url,
+                    shape,
                     status: result.status,
                     data: result.data,
                     etag: response.headers.get("ETag") || (stored && stored.etag) || null,
                     expiresAt: Date.now() + (Number(cache.ttl) || 0) * 1000
                 });
             }
-            if (!response.ok && !result.cached) return staleOr(result);
+            if (!response.ok && !result.cached) {
+                const retryAt = cache && cache.staleIfError && stored && (response.status === 403 || response.status === 429)
+                    ? retryTime(response.headers) : null;
+                if (retryAt) setLocal(cache.key, { ...stored, retryAt, retryStatus: response.status });
+                return staleOr(result);
+            }
             return result;
         }))
         .catch(error => {
@@ -153,7 +203,9 @@ function requestJSON(method, target_url, responseFunction, datajson, options) {
 //            balasan 2xx sebelum disimpan dan dikembalikan.
 // headers = Headers dari server (kosong kalau gagal atau dari cache); error = null, atau
 // "timeout" / "abort" / "offline" / "network" saat status 0; cached = true kalau data dari cache;
-// stale = true hanya kalau data tersimpan dipakai karena request gagal.
+// stale = true hanya kalau data tersimpan dipakai karena request gagal, dengan staleReason = status
+// HTTP kegagalannya atau jenis kegagalan jaringan. error "select" (dengan status asli server dan
+// data null) kalau cache.select melempar error.
 export function getJSON(target_url, responseFunction, tokenkey = null, tokenvalue = null) {
     return requestJSON('GET', target_url, responseFunction, undefined, readOptions(tokenkey, tokenvalue));
 }
@@ -229,7 +281,8 @@ export function uploadFile(target_url, source, responseFunction, options = {}) {
     const form = toFormData(source, options.field || "file", options.data);
     if (!form) {
         console.warn(`uploadFile ${target_url}: tidak ada file yang dipilih.`);
-        return Promise.resolve(respond({ status: 0, data: null, headers: new Headers(), error: "nofile" }));
+        // Lewat then(), supaya callback selalu jalan belakangan, seperti saat mengunggah sungguhan.
+        return Promise.resolve().then(() => respond({ status: 0, data: null, headers: new Headers(), error: "nofile" }));
     }
     return new Promise(resolve => {
         const xhr = new XMLHttpRequest();

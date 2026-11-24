@@ -95,9 +95,15 @@ describe("api.js: uploadFile", () => {
     test("tanpa file: error nofile tanpa request", async () => {
         const input = fileInput("uji-kosong", []);
         FakeXHR.last = null;
-        const result = await replacing("XMLHttpRequest", FakeXHR, () => uploadFile("https://contoh.test/unggah", "uji-kosong", null));
+        const urutan = [];
+        const result = await replacing("XMLHttpRequest", FakeXHR, () => {
+            const done = uploadFile("https://contoh.test/unggah", "uji-kosong", () => urutan.push("callback"));
+            urutan.push("sesudah uploadFile");
+            return done;
+        });
         input.remove();
         assert.equal(result.error, "nofile");
+        assert.deepEqual(urutan, ["sesudah uploadFile", "callback"], "callback tetap jalan belakangan");
         assert.equal(FakeXHR.last, null);
     });
     test("timeout dihitung dari kemajuan terakhir; signal membatalkan", async () => {

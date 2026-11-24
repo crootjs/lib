@@ -14,7 +14,7 @@ SKIP = {"mongo.js", "serviceworker.js"}  # untuk server / skrip klasik service w
 
 FUNCTION = "(...args: any[]) => any"
 # Tipe hasil yang diketahui; selain ini `any`.
-RESULT = "{ status: number; data: any; headers: Headers; error: null | \"timeout\" | \"abort\" | \"offline\" | \"network\" | \"nofile\"; cached?: boolean; stale?: boolean }"
+RESULT = "{ status: number; data: any; headers: Headers; error: null | \"timeout\" | \"abort\" | \"offline\" | \"network\" | \"nofile\" | \"select\"; cached?: boolean; stale?: boolean; staleReason?: number | \"timeout\" | \"offline\" | \"network\" }"
 RETURNS = {
     ("api.js", "getJSON"): f"Promise<{RESULT}>",
     ("api.js", "postJSON"): f"Promise<{RESULT}>",
