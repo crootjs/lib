@@ -9,12 +9,12 @@ Library CrootJS
 Import any module straight from jsDelivr's GitHub CDN — no `npm install`, no build step:
 
 ```js
-import { getJSON, postJSON } from "https://cdn.jsdelivr.net/gh/crootjs/lib@0.0.34/api.js";
+import { getJSON, postJSON } from "https://cdn.jsdelivr.net/gh/crootjs/lib@0.0.35/api.js";
 ```
 
 - **Pin an exact version tag** (`@0.0.5`) — check current tags at https://github.com/crootjs/lib/tags. Never use `@latest` in committed code; it can change under you without warning.
-- **Use `.min.js` in production** — jsDelivr auto-minifies any file on request via Terser, even though no `.min.js` is committed to this repo: `.../lib@0.0.34/api.min.js`. Use the unminified `.js` only when actively reading/debugging.
-- **Styling (optional):** `croot.css` gives plain HTML a finished look with no classes, plus a few layout classes and components, in about 2 KB: `<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/crootjs/lib@0.0.34/croot.min.css">`. See https://croot.js.org/docs/css. Optional icons: `icons.min.css` (49 hand-drawn icons, about 1.9 KB gzipped).
+- **Use `.min.js` in production** — jsDelivr auto-minifies any file on request via Terser, even though no `.min.js` is committed to this repo: `.../lib@0.0.35/api.min.js`. Use the unminified `.js` only when actively reading/debugging.
+- **Styling (optional):** `croot.css` gives plain HTML a finished look with no classes, plus a few layout classes and components, in about 2 KB: `<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/crootjs/lib@0.0.35/croot.min.css">`. See https://croot.js.org/docs/css. Optional icons: `icons.min.css` (49 hand-drawn icons, about 1.9 KB gzipped).
 - **Import only what you use** — each file is independent (`cookie.js`, `url.js`, `validate.js`, ...); there's no single "import everything" entry point, so your page only loads the code it needs.
 
 Full per-module API reference: https://croot.js.org/docs/
