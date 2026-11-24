@@ -75,8 +75,9 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/api.js" {
      * headers = Headers dari server (kosong kalau gagal atau dari cache); error = null, atau
      * "timeout" / "abort" / "offline" / "network" saat status 0; cached = true kalau data dari cache;
      * stale = true hanya kalau data tersimpan dipakai karena request gagal, dengan staleReason = status
-     * HTTP kegagalannya atau jenis kegagalan jaringan. error "select" (dengan status asli server dan
-     * data null) kalau cache.select melempar error.
+     * HTTP kegagalannya atau jenis kegagalan jaringan. Setelah 403/429 dengan Retry-After atau
+     * X-RateLimit-Reset, request dengan cache dijeda sampai waktu itu (paling lama 1 jam).
+     * error "select" (dengan status asli server dan data null) kalau cache.select melempar error.
      */
     export function getJSON<T = any>(target_url: string, responseFunction: CrootJS.Callback<CrootJS.Result<T, "select">> | undefined, options: CrootJS.GetOptions<T>): Promise<CrootJS.Result<T, "select">>;
     /**
@@ -98,8 +99,9 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/api.js" {
      * headers = Headers dari server (kosong kalau gagal atau dari cache); error = null, atau
      * "timeout" / "abort" / "offline" / "network" saat status 0; cached = true kalau data dari cache;
      * stale = true hanya kalau data tersimpan dipakai karena request gagal, dengan staleReason = status
-     * HTTP kegagalannya atau jenis kegagalan jaringan. error "select" (dengan status asli server dan
-     * data null) kalau cache.select melempar error.
+     * HTTP kegagalannya atau jenis kegagalan jaringan. Setelah 403/429 dengan Retry-After atau
+     * X-RateLimit-Reset, request dengan cache dijeda sampai waktu itu (paling lama 1 jam).
+     * error "select" (dengan status asli server dan data null) kalau cache.select melempar error.
      */
     export function getJSON<T = any>(target_url: string, responseFunction?: CrootJS.Callback<CrootJS.Result<T>>, tokenkey?: string, tokenvalue?: string): Promise<CrootJS.Result<T>>;
     export function postJSON<T = any>(target_url: string, datajson: any, responseFunction: CrootJS.Callback<CrootJS.Result<T>> | undefined, options: CrootJS.RequestOptions): Promise<CrootJS.Result<T>>;
@@ -183,8 +185,9 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/api.min.js" {
      * headers = Headers dari server (kosong kalau gagal atau dari cache); error = null, atau
      * "timeout" / "abort" / "offline" / "network" saat status 0; cached = true kalau data dari cache;
      * stale = true hanya kalau data tersimpan dipakai karena request gagal, dengan staleReason = status
-     * HTTP kegagalannya atau jenis kegagalan jaringan. error "select" (dengan status asli server dan
-     * data null) kalau cache.select melempar error.
+     * HTTP kegagalannya atau jenis kegagalan jaringan. Setelah 403/429 dengan Retry-After atau
+     * X-RateLimit-Reset, request dengan cache dijeda sampai waktu itu (paling lama 1 jam).
+     * error "select" (dengan status asli server dan data null) kalau cache.select melempar error.
      */
     export function getJSON<T = any>(target_url: string, responseFunction: CrootJS.Callback<CrootJS.Result<T, "select">> | undefined, options: CrootJS.GetOptions<T>): Promise<CrootJS.Result<T, "select">>;
     /**
@@ -206,8 +209,9 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/api.min.js" {
      * headers = Headers dari server (kosong kalau gagal atau dari cache); error = null, atau
      * "timeout" / "abort" / "offline" / "network" saat status 0; cached = true kalau data dari cache;
      * stale = true hanya kalau data tersimpan dipakai karena request gagal, dengan staleReason = status
-     * HTTP kegagalannya atau jenis kegagalan jaringan. error "select" (dengan status asli server dan
-     * data null) kalau cache.select melempar error.
+     * HTTP kegagalannya atau jenis kegagalan jaringan. Setelah 403/429 dengan Retry-After atau
+     * X-RateLimit-Reset, request dengan cache dijeda sampai waktu itu (paling lama 1 jam).
+     * error "select" (dengan status asli server dan data null) kalau cache.select melempar error.
      */
     export function getJSON<T = any>(target_url: string, responseFunction?: CrootJS.Callback<CrootJS.Result<T>>, tokenkey?: string, tokenvalue?: string): Promise<CrootJS.Result<T>>;
     export function postJSON<T = any>(target_url: string, datajson: any, responseFunction: CrootJS.Callback<CrootJS.Result<T>> | undefined, options: CrootJS.RequestOptions): Promise<CrootJS.Result<T>>;

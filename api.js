@@ -213,8 +213,8 @@ function requestJSON(method, target_url, responseFunction, datajson, options) {
 // "timeout" / "abort" / "offline" / "network" saat status 0; cached = true kalau data dari cache;
 // stale = true hanya kalau data tersimpan dipakai karena request gagal, dengan staleReason = status
 // HTTP kegagalannya atau jenis kegagalan jaringan. Setelah 403/429 dengan Retry-After atau
-// X-RateLimit-Reset, request dengan cache dijeda sampai waktu itu (paling lama 1 jam). error "select" (dengan status asli server dan
-// data null) kalau cache.select melempar error.
+// X-RateLimit-Reset, request dengan cache dijeda sampai waktu itu (paling lama 1 jam).
+// error "select" (dengan status asli server dan data null) kalau cache.select melempar error.
 export function getJSON(target_url, responseFunction, tokenkey = null, tokenvalue = null) {
     return requestJSON('GET', target_url, responseFunction, undefined, readOptions(tokenkey, tokenvalue));
 }
