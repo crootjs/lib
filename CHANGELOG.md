@@ -2,6 +2,17 @@
 
 All notable changes to CrootJS. Versions are git tags, served by jsDelivr as `https://cdn.jsdelivr.net/gh/crootjs/lib@<version>/<module>.js`; each is also a [GitHub release](https://github.com/crootjs/lib/releases).
 
+## [0.0.35](https://github.com/crootjs/lib/releases/tag/v0.0.35) - 2026-11-24
+
+**getJSON cache: stale data on failure, entries tied to their URL, select**
+
+- **api.js** - `cache.staleIfError: true`: when the request after `ttl` fails (network down, timeout, or a non-2xx status such as `403` when the GitHub API quota is used up), `getJSON` returns the stored data with its stored status, `cached: true` and `stale: true` instead of an error. A request aborted through `signal` still gives `error: "abort"`. Before, the stored data was there but not used.
+- **api.js** - cache entries now record their URL; an entry stored under the same `key` for a different URL is ignored instead of being returned until `ttl` runs out. Entries stored by 0.0.34 and older have no URL, so the first request after upgrading goes to the server once.
+- **api.js** - `cache.select: data => subset` trims a 2xx answer before it is stored and returned, so `localStorage` holds only the fields that are used (a GitHub release answer is about 10 KB).
+- **Docs** - corrected: a `304` answer still counts against the unauthenticated GitHub API quota; only `ttl` saves requests. Cross-origin ETag revalidation needs `Access-Control-Expose-Headers: ETag`, which api.github.com and jsDelivr send and GitHub Pages and raw.githubusercontent.com don't. `ttl` is in seconds, like `setLocalWithExpireSecond`.
+- **crootjs.d.ts** - results have `stale?: boolean`.
+- **tests/** - 171 tests.
+
 ## [0.0.34](https://github.com/crootjs/lib/releases/tag/v0.0.34) - 2026-11-24
 
 **toast.js is announced by screen readers and readable in dark mode**

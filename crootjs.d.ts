@@ -14,16 +14,20 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/api.js" {
      * timeout  milidetik sebelum request dibatalkan. Bawaan 15000.
      * signal   AbortSignal dari AbortController: controller.abort() membatalkan request
      * (error "abort", tanpa peringatan di console).
-     * cache    { key, ttl }: simpan hasil GET yang berhasil di localStorage selama ttl detik
-     * (hanya getJSON), lalu tanyakan ulang dengan If-None-Match; 304 memberi data tersimpan
-     * dengan status aslinya (200) dan cached = true.
+     * cache    { key, ttl, staleIfError, select }: simpan hasil GET yang berhasil di localStorage
+     * selama ttl detik (hanya getJSON), lalu tanyakan ulang dengan If-None-Match; 304 memberi
+     * data tersimpan dengan status aslinya (200) dan cached = true. Entri terikat ke URL-nya.
+     * staleIfError: true = kalau request sesudah TTL gagal, pakai data tersimpan
+     * (cached = true, stale = true). select: data => bagianYangDipakai, dijalankan pada
+     * balasan 2xx sebelum disimpan dan dikembalikan.
      * headers = Headers dari server (kosong kalau gagal atau dari cache); error = null, atau
-     * "timeout" / "abort" / "offline" / "network" saat status 0; cached = true kalau data dari cache.
+     * "timeout" / "abort" / "offline" / "network" saat status 0; cached = true kalau data dari cache;
+     * stale = true hanya kalau data tersimpan dipakai karena request gagal.
      */
-    export function getJSON(target_url: string, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean }>;
-    export function postJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean }>;
-    export function deleteJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean }>;
-    export function putJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean }>;
+    export function getJSON(target_url: string, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean; stale?: boolean }>;
+    export function postJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean; stale?: boolean }>;
+    export function deleteJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean; stale?: boolean }>;
+    export function putJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean; stale?: boolean }>;
     /**
      * Mengunggah file dengan multipart/form-data dan melaporkan kemajuannya. Hasilnya sama bentuknya
      * dengan getJSON: { status, data, headers, error } ke responseFunction (boleh null) dan Promise
@@ -42,7 +46,7 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/api.js" {
      * error "nofile" kalau tidak ada file yang dipilih (tanpa request).
      * Memakai XMLHttpRequest, karena fetch() belum bisa melaporkan kemajuan unggahan.
      */
-    export function uploadFile(target_url: string, source: any, responseFunction?: (...args: any[]) => any, options?: Record<string, any>): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean }>;
+    export function uploadFile(target_url: string, source: any, responseFunction?: (...args: any[]) => any, options?: Record<string, any>): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean; stale?: boolean }>;
     /**
      * Mengunduh file. Hasil { status, data, headers, error } ke responseFunction (boleh null) dan
      * Promise yang tidak pernah reject: data = Blob kalau status 2xx, selain itu body error server
@@ -50,7 +54,7 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/api.js" {
      * options (semua opsional): headers, timeout (bawaan 15000), signal - sama dengan getJSON - dan
      * fileName  kalau diisi, file 2xx langsung disimpan browser dengan nama ini.
      */
-    export function downloadFile(target_url: string, responseFunction?: (...args: any[]) => any, options?: Record<string, any>): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean }>;
+    export function downloadFile(target_url: string, responseFunction?: (...args: any[]) => any, options?: Record<string, any>): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean; stale?: boolean }>;
     /**
      * errorFunction (opsional) dipanggil dengan sebuah Error kalau elemen tidak ada,
      * server membalas status non-2xx, jaringan gagal, atau request timeout.
@@ -90,16 +94,20 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/api.min.js" {
      * timeout  milidetik sebelum request dibatalkan. Bawaan 15000.
      * signal   AbortSignal dari AbortController: controller.abort() membatalkan request
      * (error "abort", tanpa peringatan di console).
-     * cache    { key, ttl }: simpan hasil GET yang berhasil di localStorage selama ttl detik
-     * (hanya getJSON), lalu tanyakan ulang dengan If-None-Match; 304 memberi data tersimpan
-     * dengan status aslinya (200) dan cached = true.
+     * cache    { key, ttl, staleIfError, select }: simpan hasil GET yang berhasil di localStorage
+     * selama ttl detik (hanya getJSON), lalu tanyakan ulang dengan If-None-Match; 304 memberi
+     * data tersimpan dengan status aslinya (200) dan cached = true. Entri terikat ke URL-nya.
+     * staleIfError: true = kalau request sesudah TTL gagal, pakai data tersimpan
+     * (cached = true, stale = true). select: data => bagianYangDipakai, dijalankan pada
+     * balasan 2xx sebelum disimpan dan dikembalikan.
      * headers = Headers dari server (kosong kalau gagal atau dari cache); error = null, atau
-     * "timeout" / "abort" / "offline" / "network" saat status 0; cached = true kalau data dari cache.
+     * "timeout" / "abort" / "offline" / "network" saat status 0; cached = true kalau data dari cache;
+     * stale = true hanya kalau data tersimpan dipakai karena request gagal.
      */
-    export function getJSON(target_url: string, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean }>;
-    export function postJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean }>;
-    export function deleteJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean }>;
-    export function putJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean }>;
+    export function getJSON(target_url: string, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean; stale?: boolean }>;
+    export function postJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean; stale?: boolean }>;
+    export function deleteJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean; stale?: boolean }>;
+    export function putJSON(target_url: string, datajson: any, responseFunction?: (...args: any[]) => any, tokenkey?: any, tokenvalue?: any): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean; stale?: boolean }>;
     /**
      * Mengunggah file dengan multipart/form-data dan melaporkan kemajuannya. Hasilnya sama bentuknya
      * dengan getJSON: { status, data, headers, error } ke responseFunction (boleh null) dan Promise
@@ -118,7 +126,7 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/api.min.js" {
      * error "nofile" kalau tidak ada file yang dipilih (tanpa request).
      * Memakai XMLHttpRequest, karena fetch() belum bisa melaporkan kemajuan unggahan.
      */
-    export function uploadFile(target_url: string, source: any, responseFunction?: (...args: any[]) => any, options?: Record<string, any>): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean }>;
+    export function uploadFile(target_url: string, source: any, responseFunction?: (...args: any[]) => any, options?: Record<string, any>): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean; stale?: boolean }>;
     /**
      * Mengunduh file. Hasil { status, data, headers, error } ke responseFunction (boleh null) dan
      * Promise yang tidak pernah reject: data = Blob kalau status 2xx, selain itu body error server
@@ -126,7 +134,7 @@ declare module "https://cdn.jsdelivr.net/gh/crootjs/lib@*/api.min.js" {
      * options (semua opsional): headers, timeout (bawaan 15000), signal - sama dengan getJSON - dan
      * fileName  kalau diisi, file 2xx langsung disimpan browser dengan nama ini.
      */
-    export function downloadFile(target_url: string, responseFunction?: (...args: any[]) => any, options?: Record<string, any>): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean }>;
+    export function downloadFile(target_url: string, responseFunction?: (...args: any[]) => any, options?: Record<string, any>): Promise<{ status: number; data: any; headers: Headers; error: null | "timeout" | "abort" | "offline" | "network" | "nofile"; cached?: boolean; stale?: boolean }>;
     /**
      * errorFunction (opsional) dipanggil dengan sebuah Error kalau elemen tidak ada,
      * server membalas status non-2xx, jaringan gagal, atau request timeout.

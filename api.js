@@ -72,11 +72,20 @@ function requestJSON(method, target_url, responseFunction, datajson, options) {
     // sesudahnya, kalau server memberi ETag, request membawa If-None-Match dan balasan 304
     // memakai data yang tersimpan.
     const cache = method === "GET" && options.cache && options.cache.key ? options.cache : null;
-    const stored = cache ? getLocal(cache.key) : null;
+    // Entri dari URL lain (key sama, URL berubah) atau dari versi sebelum 0.0.35 yang belum
+    // mencatat URL dianggap tidak ada.
+    const entry = cache ? getLocal(cache.key) : null;
+    const stored = entry && entry.url === target_url ? entry : null;
     if (stored && Date.now() < stored.expiresAt) {
         return Promise.resolve(respond({ status: stored.status, data: stored.data, headers: new Headers(), error: null, cached: true }));
     }
     if (stored && stored.etag && !headers.has("If-None-Match")) headers.set("If-None-Match", stored.etag);
+
+    // staleIfError: request gagal (status 0 atau bukan 2xx) sesudah TTL habis memberi data yang
+    // masih tersimpan, bukan galat. Entri hanya ditimpa saat request berhasil, jadi datanya ada.
+    const staleOr = result => cache && cache.staleIfError && stored
+        ? { status: stored.status, data: stored.data, headers: result.headers, error: null, cached: true, stale: true }
+        : result;
 
     const requestOptions = { method, redirect: 'follow', headers };
     if (datajson !== undefined) requestOptions.body = JSON.stringify(datajson);
@@ -91,6 +100,9 @@ function requestJSON(method, target_url, responseFunction, datajson, options) {
             } catch (parseError) {
                 data = null;
             }
+            // select memangkas data sebelum disimpan; hasil yang dikembalikan ikut dipangkas supaya
+            // bentuknya sama, baik dari server maupun dari cache.
+            if (cache && cache.select && response.ok && data !== null) data = cache.select(data);
             const result = { status: response.status, data, headers: response.headers, error: null, cached: false };
             // 304 = data tersimpan masih berlaku. Statusnya dilaporkan seperti saat disimpan (200),
             // supaya pemanggil cukup memeriksa status === 200; headers tetap milik balasan 304.
@@ -101,12 +113,14 @@ function requestJSON(method, target_url, responseFunction, datajson, options) {
             }
             if (cache && (response.ok || result.cached)) {
                 setLocal(cache.key, {
+                    url: target_url,
                     status: result.status,
                     data: result.data,
                     etag: response.headers.get("ETag") || (stored && stored.etag) || null,
                     expiresAt: Date.now() + (Number(cache.ttl) || 0) * 1000
                 });
             }
+            if (!response.ok && !result.cached) return staleOr(result);
             return result;
         }))
         .catch(error => {
@@ -114,7 +128,9 @@ function requestJSON(method, target_url, responseFunction, datajson, options) {
             // sekali. status 0 bukan status HTTP asli (yang selalu >= 100).
             const kind = failure(state);
             if (kind !== "abort") console.warn(`${method} ${target_url} gagal (${kind}):`, error.message);
-            return { status: 0, data: null, headers: new Headers(), error: kind, cached: false };
+            const result = { status: 0, data: null, headers: new Headers(), error: kind, cached: false };
+            // Dibatalkan sendiri oleh pemanggil: tidak perlu data pengganti.
+            return kind === "abort" ? result : staleOr(result);
         })
         .finally(done)
         .then(respond);
@@ -129,11 +145,15 @@ function requestJSON(method, target_url, responseFunction, datajson, options) {
 //   timeout  milidetik sebelum request dibatalkan. Bawaan 15000.
 //   signal   AbortSignal dari AbortController: controller.abort() membatalkan request
 //            (error "abort", tanpa peringatan di console).
-//   cache    { key, ttl }: simpan hasil GET yang berhasil di localStorage selama ttl detik
-//            (hanya getJSON), lalu tanyakan ulang dengan If-None-Match; 304 memberi data tersimpan
-//            dengan status aslinya (200) dan cached = true.
+//   cache    { key, ttl, staleIfError, select }: simpan hasil GET yang berhasil di localStorage
+//            selama ttl detik (hanya getJSON), lalu tanyakan ulang dengan If-None-Match; 304 memberi
+//            data tersimpan dengan status aslinya (200) dan cached = true. Entri terikat ke URL-nya.
+//            staleIfError: true = kalau request sesudah TTL gagal, pakai data tersimpan
+//            (cached = true, stale = true). select: data => bagianYangDipakai, dijalankan pada
+//            balasan 2xx sebelum disimpan dan dikembalikan.
 // headers = Headers dari server (kosong kalau gagal atau dari cache); error = null, atau
-// "timeout" / "abort" / "offline" / "network" saat status 0; cached = true kalau data dari cache.
+// "timeout" / "abort" / "offline" / "network" saat status 0; cached = true kalau data dari cache;
+// stale = true hanya kalau data tersimpan dipakai karena request gagal.
 export function getJSON(target_url, responseFunction, tokenkey = null, tokenvalue = null) {
     return requestJSON('GET', target_url, responseFunction, undefined, readOptions(tokenkey, tokenvalue));
 }

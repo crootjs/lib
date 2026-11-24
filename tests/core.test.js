@@ -203,4 +203,66 @@ describe("api.js", () => {
             deleteLocal("crootjs_uji_cache");
         }
     });
+    test("cache.staleIfError: sesudah ttl, 403 atau jaringan putus memberi data tersimpan", async () => {
+        deleteLocal("crootjs_uji_cache");
+        const original = window.fetch;
+        let mode = "ok";
+        window.fetch = () => {
+            if (mode === "ok") return Promise.resolve(new Response('{"versi":1}', { status: 200 }));
+            if (mode === "403") return Promise.resolve(new Response('{"message":"rate limit"}', { status: 403 }));
+            return Promise.reject(new TypeError("Failed to fetch"));
+        };
+        try {
+            const url = "https://contoh.test/rilis";
+            await getJSON(url, null, { cache: { key: "crootjs_uji_cache", ttl: 0 } });
+            mode = "403";
+            const plain = await getJSON(url, null, { cache: { key: "crootjs_uji_cache", ttl: 0 } });
+            assert.equal(plain.status, 403, "tanpa staleIfError galatnya tetap dilaporkan");
+            assert.equal(plain.stale, undefined);
+            const cache = { key: "crootjs_uji_cache", ttl: 0, staleIfError: true };
+            const limited = await getJSON(url, null, { cache });
+            assert.equal(limited.status, 200);
+            assert.deepEqual(limited.data, { versi: 1 });
+            assert.equal(limited.cached, true);
+            assert.equal(limited.stale, true);
+            mode = "network";
+            const offline = await getJSON(url, null, { cache });
+            assert.equal(offline.status, 200);
+            assert.equal(offline.stale, true);
+            assert.equal(offline.error, null);
+            const controller = new AbortController();
+            controller.abort();
+            const aborted = await getJSON(url, null, { cache, signal: controller.signal });
+            assert.equal(aborted.status, 0, "dibatalkan sendiri tidak diganti data lama");
+            assert.equal(aborted.error, "abort");
+        } finally {
+            window.fetch = original;
+            deleteLocal("crootjs_uji_cache");
+        }
+    });
+    test("cache terikat ke URL; select memangkas data yang disimpan dan dikembalikan", async () => {
+        deleteLocal("crootjs_uji_cache");
+        const sent = [];
+        const original = window.fetch;
+        window.fetch = url => {
+            sent.push(url);
+            return Promise.resolve(new Response(JSON.stringify({ tag_name: "v" + sent.length, body: "x".repeat(500) }), { status: 200 }));
+        };
+        try {
+            const cache = { key: "crootjs_uji_cache", ttl: 60, select: data => ({ tag: data.tag_name }) };
+            const first = await getJSON("https://contoh.test/a", null, { cache });
+            assert.deepEqual(first.data, { tag: "v1" });
+            assert.deepEqual(getLocal("crootjs_uji_cache").data, { tag: "v1" });
+            const again = await getJSON("https://contoh.test/a", null, { cache });
+            assert.equal(again.cached, true);
+            assert.deepEqual(again.data, { tag: "v1" });
+            const other = await getJSON("https://contoh.test/b", null, { cache });
+            assert.equal(sent.length, 2, "URL lain dengan key sama tetap meminta ke server");
+            assert.equal(other.cached, false);
+            assert.deepEqual(other.data, { tag: "v2" });
+        } finally {
+            window.fetch = original;
+            deleteLocal("crootjs_uji_cache");
+        }
+    });
 });
