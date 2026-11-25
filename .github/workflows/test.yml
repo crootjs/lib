@@ -88,7 +88,7 @@ jobs:
           # jsDelivr bisa menyimpan jawaban 404 untuk file yang diminta sebelum tag ada (misalnya
           # dari docs/contoh yang sudah memakai versi baru). File seperti itu di-purge lalu dicek lagi.
           failed=""
-          for file in $(ls *.js | grep -v '\.min\.js$' | sed 's/\.js$/.min.js/') $(ls *.css | sed 's/\.css$/.min.css/'); do
+          for file in $(ls *.js | grep -v '\.min\.js$' | sed 's/\.js$/.min.js/') $(ls *.css | sed 's/\.css$/.min.css/') integrity.json; do
             url="https://cdn.jsdelivr.net/gh/crootjs/lib@$VERSION/$file"
             code=$(curl -s -o /dev/null -w '%{http_code}' "$url")
             # Memperkecil file butuh waktu, dan selama itu jawabannya bisa 404: purge, lalu coba
@@ -111,7 +111,7 @@ jobs:
         env:
           VERSION: ${{ steps.release.outputs.released }}
         run: |
-          sh tools/bump-pins.sh "$VERSION"
+          python3 tools/bump-pins.py "$VERSION"
           # Ditulis setelah jsDelivr siap, jadi yang membaca file ini tidak pernah mendapat versi
           # yang masih 404.
           echo "{\"version\": \"$VERSION\"}" > version.json

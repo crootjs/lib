@@ -5,7 +5,7 @@ lolos uji:
   tangan itu yang dirilis.
 - Kalau sudah ada tag-nya, tetapi sejak tag terakhir ada perubahan kode modul (*.js atau *.css di
   folder utama, bukan tests/ atau tools/), versi patch dinaikkan: entri baru di CHANGELOG.md dari
-  judul commit yang mengubah kode itu, crootjs.d.ts dibangkitkan ulang, lalu keduanya di-commit
+  judul commit yang mengubah kode itu (dalam bahasa Inggris, seperti CHANGELOG.md), crootjs.d.ts dibangkitkan ulang, lalu keduanya di-commit
   dan di-push ke main. tools/release.py kemudian membuat tag dan release seperti biasa.
 - Push yang hanya mengubah dokumentasi, uji, atau workflow tidak membuat versi.
 
@@ -54,14 +54,14 @@ def main():
     subjects.reverse()  # yang terlama dulu
     major, minor, patch = (int(part) for part in top.groups())
     new = f"{major}.{minor}.{patch + 1}"
-    title = subjects[0] if len(subjects) == 1 else f"{len(subjects)} perubahan: " + "; ".join(subjects)
+    title = subjects[0] if len(subjects) == 1 else f"{len(subjects)} changes: " + "; ".join(subjects)
     if len(title) > 120:
         title = title[:117] + "..."
     entry = (f"## [{new}](https://github.com/crootjs/lib/releases/tag/v{new}) - {datetime.date.today().isoformat()}\n\n"
              f"**{title}**\n\n"
              + "".join(f"- {subject}\n" for subject in subjects)
-             + f"- Berkas yang berubah: {', '.join(f'`{name}`' for name in sorted(changed))}.\n"
-             + "- Versi ini dibuat otomatis dari judul commit (tools/auto-version.py).\n\n")
+             + f"- Changed files: {', '.join(f'`{name}`' for name in sorted(changed))}.\n"
+             + "- This version was made automatically from the commit subjects (tools/auto-version.py).\n\n")
     print(entry)
     if DRY_RUN:
         return
@@ -69,7 +69,7 @@ def main():
     open(changelog_path, "w", encoding="utf-8").write(changelog)
     subprocess.run([sys.executable, os.path.join(LIB, "tools", "build-types.py")], cwd=LIB, check=True)
     git("add", "CHANGELOG.md", "crootjs.d.ts")
-    git("commit", "-m", f"{new}: versi otomatis")
+    git("commit", "-m", f"{new}: automatic version")
     git("push", "origin", "HEAD:main")
 
 

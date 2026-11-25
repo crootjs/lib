@@ -7,10 +7,18 @@ Tanpa ini jsDelivr memperkecil sendiri, tetapi tidak mengubah path import: api.m
 storage, masing-masing dengan state sendiri (mapmodel.js + model3d.js lebih parah: viewer yang
 dibuat lewat satu salinan tidak dikenal salinan lain).
 
+Sekaligus menulis integrity.json: hash SRI (sha384) setiap .js, .min.js, dan .css, plus import
+relatif tiap modul, untuk atribut integrity dan tools/bump-pins.py. jsDelivr menyajikan berkas
+dari tag byte per byte, jadi hash ini cocok dengan yang diunduh browser; kecuali .min.css, yang
+dibuat jsDelivr sendiri dan tidak ada di tag.
+
     python3 tools/build-min.py          # terser lewat npx (versi dipatok di TERSER)
     TERSER=/path/ke/terser python3 tools/build-min.py
 """
+import base64
 import glob
+import hashlib
+import json
 import os
 import re
 import subprocess
@@ -23,6 +31,9 @@ TERSER = os.environ.get("TERSER", "npx --yes terser@5.51.4").split()
 CLASSIC = {"serviceworker.js"}
 # from "./x.js", import "./x.js", import("./x.js"), export ... from "./x.js"
 RELATIVE = re.compile(r"""((?:\bfrom|\bimport)\s*\(?\s*)(["'])\./([\w-]+)\.js\2""")
+# Import dinamis dengan URL hasil hitungan (sibling() di openapi.js), yang tidak terbaca regex.
+DYNAMIC = {"openapi": ["yaml", "markdown"]}
+MIN_RELATIVE = re.compile(r"""(?:\bfrom|\bimport)\s*\(?\s*["']\./([\w-]+)\.min\.js["']""")
 
 
 def modules():
@@ -51,12 +62,34 @@ def build(name, workdir):
     return target
 
 
+def sri(path):
+    return "sha384-" + base64.b64encode(hashlib.sha384(open(path, "rb").read()).digest()).decode()
+
+
+def write_integrity(built):
+    names = sorted(modules() + built + [os.path.basename(path) for path in glob.glob(os.path.join(LIB, "*.css"))])
+    # Dari hasil terser, yang sudah tanpa komentar (contoh import di komentar tidak ikut);
+    # modul .js mengimpor nama yang sama tanpa .min.
+    imports = {}
+    for name in built:
+        output = open(os.path.join(LIB, name), encoding="utf-8").read()
+        found = list(dict.fromkeys(MIN_RELATIVE.findall(output) + DYNAMIC.get(name[:-7], [])))
+        if found:
+            imports[name] = [dep + ".min.js" for dep in found]
+            imports[name[:-7] + ".js"] = [dep + ".js" for dep in found]
+    data = {"files": {name: sri(os.path.join(LIB, name)) for name in names}, "imports": imports}
+    with open(os.path.join(LIB, "integrity.json"), "w", encoding="utf-8") as file:
+        json.dump(data, file, indent=1)
+        file.write("\n")
+
+
 def main():
     built = []
     with tempfile.TemporaryDirectory() as workdir:
         for name in modules():
             built.append(build(name, workdir))
-    print(f"{len(built)} berkas .min.js dibuat")
+    write_integrity(built)
+    print(f"{len(built)} berkas .min.js dibuat, hash di integrity.json")
 
 
 if __name__ == "__main__":

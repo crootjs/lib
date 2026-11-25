@@ -11,3 +11,7 @@ output
 # Dibuat tools/build-min.py hanya untuk commit tag rilis, bukan untuk main
 *.min.js
 *.min.js.map
+integrity.json
+
+# Cache Python dari tools/
+__pycache__/

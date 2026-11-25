@@ -5,9 +5,13 @@ Hasilnya ditempel ke docs (README "Memuat lebih cepat").
 Tanpa modulepreload browser baru tahu storage.min.js dibutuhkan setelah api.min.js selesai
 diunduh: setiap tingkat import menambah satu kali bolak-balik ke server (~150 ms di seluler).
 
-    python3 tools/module-deps.py [versi]     # versi bawaan "<versi>"
+Dengan versi rilis, setiap baris juga diberi integrity (hash SRI dari integrity.json rilis itu,
+lewat tools/bump-pins.py), supaya bisa ditempel apa adanya.
+
+    python3 tools/module-deps.py [versi]     # versi bawaan "<versi>", tanpa integrity
 """
 import glob
+import importlib.util
 import os
 import re
 import sys
@@ -48,8 +52,16 @@ def depth(deps, name, seen=()):
     return max((1 + depth(deps, dep, seen + (name,)) for dep in deps.get(name, []) if dep not in seen), default=0)
 
 
+def hashes():
+    spec = importlib.util.spec_from_file_location("bump_pins", os.path.join(LIB, "tools", "bump-pins.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.Hashes()
+
+
 def main():
     version = sys.argv[1] if len(sys.argv) > 1 else "<versi>"
+    sri = hashes() if version != "<versi>" else None
     deps = direct()
     rows = [(name, closure(deps, name), depth(deps, name)) for name in deps if deps[name]]
     print("| Modul | Ikut dimuat | Tingkat |")
@@ -61,7 +73,8 @@ def main():
         print(f"`{name}.min.js`:\n")
         print("```html")
         for module in [name] + needed:
-            print(f'<link rel="modulepreload" href="{CDN.format(version=version, name=module)}">')
+            integrity = f' integrity="{sri.integrity(version, module + ".min.js")}"' if sri else ""
+            print(f'<link rel="modulepreload" href="{CDN.format(version=version, name=module)}"{integrity}>')
         print("```\n")
 
 

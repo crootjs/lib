@@ -2,6 +2,16 @@
 
 All notable changes to CrootJS. Versions are git tags, served by jsDelivr as `https://cdn.jsdelivr.net/gh/crootjs/lib@<version>/<module>.js`; each is also a [GitHub release](https://github.com/crootjs/lib/releases).
 
+## [0.0.42](https://github.com/crootjs/lib/releases/tag/v0.0.42) - 2026-11-25
+
+**SRI hashes in every release, and bump-pins.py for your own project**
+
+- **integrity.json (new)** - every release now contains `integrity.json`: the sha384 SRI hash of each `.js`, `.min.js` and `.css` file in the tag, and the modules each module imports (static, and `yaml`/`markdown` for `openapi`). jsDelivr serves tag files byte for byte, so the hashes match what browsers download; `.min.css` is not included because jsDelivr minifies it itself. The modules are unchanged from 0.0.41.
+- **SRI guide** - `integrity` on `<link rel="modulepreload">` is enforced only by Chromium; Firefox and Safari still run a changed module loaded by `import`. All three enforce an import map with an `integrity` key, which also covers imports inside modules. The docs show how to install it from `integrity.js`, a classic script loaded first in `<head>` (Firefox ignores an import map added after module loading started), the one exception to the ES module convention. The landing page uses it.
+- **tools/bump-pins.py (new, replaces bump-pins.sh)** - `python3 bump-pins.py <version|latest> [folder]` bumps every `crootjs/lib@x.y.z` in `.html`, `.js`, `.md`, `.txt` and `.json` files, and fills or updates every `integrity` next to a CrootJS URL (attributes and import map entries, empty values too) from `integrity.json`, or from the downloaded files for older versions. Nothing is written when a hash can't be fetched; modules missing from an import map are reported. Python 3 only, no packages. The docs include a workflow that opens a pull request for each new version.
+- **tools/module-deps.py** - with a version, the `modulepreload` lines include `integrity`.
+- **Release** - auto-generated changelog entries and release commit messages are in English, like the rest of this changelog.
+
 ## [0.0.41](https://github.com/crootjs/lib/releases/tag/v0.0.41) - 2026-11-24
 
 **ui.css, themes.css and tabs.js: app components, four themes, and page patterns**
@@ -28,8 +38,8 @@ All notable changes to CrootJS. Versions are git tags, served by jsDelivr as `ht
 **api.js: rewrap the getJSON comment; regenerate crootjs.d.ts (0.0.38 shipped a stale comment)**
 
 - api.js: rewrap the getJSON comment; regenerate crootjs.d.ts (0.0.38 shipped a stale comment)
-- Berkas yang berubah: `api.js`.
-- Versi ini dibuat otomatis dari judul commit (tools/auto-version.py).
+- Changed files: `api.js`.
+- This version was made automatically from the commit subjects (tools/auto-version.py).
 
 ## [0.0.38](https://github.com/crootjs/lib/releases/tag/v0.0.38) - 2026-11-24
 
