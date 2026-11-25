@@ -2,8 +2,8 @@
 setelah uji lolos (.github/workflows/test.yml):
 
 - Versi teratas di CHANGELOG.md yang tag-nya belum ada -> tag dibuat di commit rilis: isi commit
-  ini ditambah <modul>.min.js buatan tools/build-min.py (import-nya ke ./<modul>.min.js) dan
-  integrity.json (hash SRI), di
+  ini ditambah <modul>.min.js buatan tools/build-min.py (import-nya ke ./<modul>.min.js),
+  <nama>.min.css, dan integrity.json (hash SRI), di
   branch dist (bukan main). jsDelivr menyajikan .min.js dari tag apa adanya.
 - Setiap versi di CHANGELOG.md yang tag-nya ada tapi belum punya GitHub Release -> release
   dibuat dengan judul dan isi bagian versi itu. Yang terbaru ditandai "Latest".
@@ -54,11 +54,11 @@ def sections():
 
 def tag_with_min(tag):
     act(sys.executable, os.path.join("tools", "build-min.py"))
-    built = sorted(os.path.basename(path) for pattern in ("*.min.js", "*.min.js.map", "integrity.json") for path in glob.glob(os.path.join(LIB, pattern)))
+    built = sorted(os.path.basename(path) for pattern in ("*.min.js", "*.min.js.map", "*.min.css", "*.min.css.map", "integrity.json") for path in glob.glob(os.path.join(LIB, pattern)))
     if DRY_RUN:
         print(f"+ commit {tag} (main + {len(built)} berkas .min) di branch {DIST}, tag {tag}")
         return
-    # Pohon commit rilis = main + .min.js + integrity.json, disusun di index sementara supaya working tree dan
+    # Pohon commit rilis = main + .min.js + .min.css + integrity.json, disusun di index sementara supaya working tree dan
     # branch yang sedang aktif tidak tersentuh (-f karena .gitignore menolak *.min.js di main).
     index = os.path.join(LIB, ".git", "release-index")
     env = {**os.environ, "GIT_INDEX_FILE": index}
@@ -76,7 +76,7 @@ def tag_with_min(tag):
     else:
         orphans = run("git", "tag", "--no-merged", "HEAD", "-l", "v*").stdout.split()
         parents += [run("git", "rev-parse", f"{name}^{{commit}}").stdout.strip() for name in orphans]
-    args = ["git", "commit-tree", tree, "-m", f"{tag}: built .min.js files (importing .min.js) and integrity.json"]
+    args = ["git", "commit-tree", tree, "-m", f"{tag}: built .min.js (importing .min.js) and .min.css files, and integrity.json"]
     for parent in parents:
         args += ["-p", parent]
     commit = run(*args).stdout.strip()

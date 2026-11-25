@@ -85,7 +85,8 @@ class Hashes:
         release = self.release(version)
         if name not in release["files"]:
             if not release.get("downloaded"):
-                sys.exit(f"{name} tidak ada di integrity.json lib@{version}.")
+                hint = " .min.css buatan CrootJS (dengan hash) baru ada sejak 0.0.43." if name.endswith(".min.css") else ""
+                sys.exit(f"{name} tidak ada di integrity.json lib@{version}.{hint}")
             self.fetch(version, name)
         return release["files"][name]
 

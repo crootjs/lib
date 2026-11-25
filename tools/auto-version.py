@@ -45,7 +45,7 @@ def main():
     # Sejak 0.0.38 tag menunjuk ke commit anak berisi .min.js; merge-base memberi commit main-nya.
     base = git("merge-base", "v" + version, "HEAD")
     changed = [name for name in git("diff", "--name-only", base, "HEAD").splitlines()
-               if "/" not in name and name.endswith((".js", ".css")) and not name.endswith(".min.js")]
+               if "/" not in name and name.endswith((".js", ".css")) and not name.endswith((".min.js", ".min.css"))]
     if not changed:
         print(f"Tidak ada perubahan kode modul sejak v{version}: tidak ada versi baru.")
         return

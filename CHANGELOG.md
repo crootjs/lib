@@ -2,6 +2,14 @@
 
 All notable changes to CrootJS. Versions are git tags, served by jsDelivr as `https://cdn.jsdelivr.net/gh/crootjs/lib@<version>/<module>.js`; each is also a [GitHub release](https://github.com/crootjs/lib/releases).
 
+## [0.0.43](https://github.com/crootjs/lib/releases/tag/v0.0.43) - 2026-11-25
+
+**Our own .min.css files, with SRI hashes**
+
+- **Release** - `croot.min.css`, `ui.min.css`, `themes.min.css` and `icons.min.css` are now built by `tools/build-min.py` with lightningcss (pinned, with source maps) and shipped in the release commit, like `.min.js`. Up to 0.0.42 jsDelivr minified them on request, so their content could change whenever jsDelivr updated its minifier, and no SRI hash could be published. Same URLs as before.
+- **integrity.json** - includes the `.min.css` files. Stylesheets with `integrity` need `crossorigin="anonymous"`. `bump-pins.py` says so when a `.min.css` is missing from an older `integrity.json`.
+- **Smaller** - gzip -9 sizes, ours vs jsDelivr's: `croot.min.css` 2.19 vs 2.39 KB, `ui.min.css` 3.02 vs 3.24 KB, `themes.min.css` 1.19 vs 1.38 KB, `icons.min.css` 1.88 vs 2.46 KB. Computed styles of every element (and `::before`, `::after`, `::marker`) on the nine page patterns are identical to the unminified `.css` in Chromium, Firefox and WebKit, in light and dark mode and with every theme; only the raw text of custom properties differs (`--croot-bg: #fff` instead of `#ffffff`).
+
 ## [0.0.42](https://github.com/crootjs/lib/releases/tag/v0.0.42) - 2026-11-25
 
 **SRI hashes in every release, and bump-pins.py for your own project**
